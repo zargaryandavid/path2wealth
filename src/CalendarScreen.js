@@ -29,7 +29,7 @@ function monthGrid(year, month) {
   return cells;
 }
 
-export function CalendarScreen({ visible, transactions = [], onClose }) {
+function CalendarScreen({ visible, transactions = [], onClose }) {
   const today = useMemo(() => {
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), n.getDate());

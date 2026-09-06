@@ -43,6 +43,14 @@ export async function saveProfile(uid, p) {
 // Simple + reliable for an alpha: replace the user's rows with the current set.
 export async function syncTransactions(uid, txs) {
   const real = txs.filter((t) => !t.bondId);
-  await supabase.from('transactions').delete().eq('user_id', uid);
-  if (real.length) await supabase.from('transactions').insert(real.map((t) => toDbTx(uid, t)));
+  const { error: delErr } = await supabase.from('transactions').delete().eq('user_id', uid);
+  if (delErr) return { error: delErr };
+  if (!real.length) return { error: null };
+  const rows = real.map((t) => toDbTx(uid, t));
+  let { error } = await supabase.from('transactions').insert(rows);
+  // Live DB may not have occurred_on yet (migration 0003). Retry without that column.
+  if (error && String(error.message || '').includes('occurred_on')) {
+    ({ error } = await supabase.from('transactions').insert(rows.map(({ occurred_on, ...r }) => r)));
+  }
+  return { error };
 }

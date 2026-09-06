@@ -13,11 +13,11 @@ import FireScreen from './src/FireScreen';
 import PortfolioScreen from './src/PortfolioScreen';
 import LoginScreen from './src/LoginScreen';
 import OnboardingScreen from './src/OnboardingScreen';
-import { CalendarScreen } from './src/CalendarScreen';
+import CalendarScreen from './src/CalendarScreen';
 import RecurringScreen from './src/RecurringScreen';
 import { COLORS, EXPENSE_CATEGORIES, categoryInfo, formatMoney } from './src/theme';
 import { CatIcon } from './src/Icons';
-import { supabase, isSupabaseConfigured } from './src/supabase';
+import { supabase, isSupabaseConfigured, authRedirectTo } from './src/supabase';
 import { loadAll, saveProfile, syncTransactions } from './src/db';
 import { calendarItems, firstPaymentOn, postedOccurrences, seriesIdOf, todayKey } from './src/recurring';
 
@@ -109,6 +109,9 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [user, setUser] = useState(null);
   const [loaded, setLoaded] = useState(!isSupabaseConfigured);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
   const [profile, setProfile] = useState(null);
   const [transactions, setTransactions] = useState(SEED);
   const [modalVisible, setModalVisible] = useState(false);
@@ -153,7 +156,7 @@ export default function App() {
     setLoaded(false);
     loadAll(user.id).then((d) => {
       if (!alive) return;
-      if (d.profile) setProfile(d.profile);
+      setProfile(d.profile);
       setTransactions(d.transactions);
       setLoaded(true);
     }).catch(() => { if (alive) setLoaded(true); });
@@ -168,7 +171,11 @@ export default function App() {
 
   useEffect(() => {
     if (!cloud || !loaded) return;
-    const h = setTimeout(() => { syncTransactions(user.id, transactions).catch(() => {}); }, 700);
+    const h = setTimeout(() => {
+      syncTransactions(user.id, transactions).then((res) => {
+        if (res && res.error) console.warn('Supabase transaction save failed:', res.error.message);
+      }).catch((e) => console.warn('Supabase transaction save failed:', e));
+    }, 700);
     return () => clearTimeout(h);
   }, [transactions, loaded]);
 
@@ -230,23 +237,100 @@ export default function App() {
     setSelectedKey(null); setModalVisible(false); setEditEntry(null);
   }
 
+  async function handleEmailAuth(mode, email, password) {
+    if (mode === 'apple' || mode === 'google') {
+      await handleSignIn(mode);
+      return;
+    }
+    if (!isSupabaseConfigured) {
+      setUser({ id: 'local', email });
+      return;
+    }
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      if (mode === 'signup') {
+        const { data, error } = await supabase.auth.signUp({
+          email, password, options: { emailRedirectTo: authRedirectTo() },
+        });
+        if (error) { setAuthError(error.message); return; }
+        if (data.session && data.user) { setUser({ id: data.user.id }); return; }
+        setPendingEmail(email);
+        setAuthError('Check your email for a 6-digit code, then verify.');
+        return;
+      }
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) { setAuthError(error.message); return; }
+      if (data.user) setUser({ id: data.user.id });
+    } catch (e) {
+      setAuthError(e.message || String(e));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleVerify(email, token) {
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({ email, token: String(token).trim(), type: 'signup' });
+      if (error) { setAuthError(error.message); return; }
+      if (data.user) {
+        setPendingEmail('');
+        setUser({ id: data.user.id });
+      }
+    } catch (e) {
+      setAuthError(e.message || String(e));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleResend(email) {
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup', email });
+      if (error) setAuthError(error.message);
+    } catch (e) {
+      setAuthError(e.message || String(e));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   async function handleSignIn(provider) {
+    // Apple / Google still stubbed — reuse an existing session instead of minting a new anonymous user.
     if (isSupabaseConfigured) {
       try {
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (!error && data && data.user) { setUser({ id: data.user.id }); return; }
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && session.user) { setUser({ id: session.user.id }); return; }
       } catch (e) {}
     }
-    setUser({ provider }); // fallback: works in-memory if cloud sign-in is unavailable
+    setUser({ provider });
   }
+
   async function signOut() {
     setProfileOpen(false);
     if (isSupabaseConfigured) { try { await supabase.auth.signOut(); } catch (e) {} }
     setUser(null); setProfile(null); setTransactions(SEED); setLoaded(!isSupabaseConfigured);
+    setPendingEmail(''); setAuthError('');
   }
 
   if (!authReady) return <View style={{ flex: 1, backgroundColor: COLORS.header }} />;
-  if (!user) return <LoginScreen onSignIn={handleSignIn} />;
+  if (!user) {
+    return (
+      <LoginScreen
+        onSignIn={handleEmailAuth}
+        onVerify={handleVerify}
+        onResend={handleResend}
+        pendingEmail={pendingEmail}
+        onCancelVerify={() => { setPendingEmail(''); setAuthError(''); }}
+        busy={authBusy}
+        error={authError}
+      />
+    );
+  }
   if (cloud && !loaded) return <View style={{ flex: 1, backgroundColor: COLORS.card }} />;
   if (!profile) return <OnboardingScreen onComplete={(answers) => setProfile(answers)} />;
 
