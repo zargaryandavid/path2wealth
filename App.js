@@ -1,13 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, StatusBar, Platform,
+  View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, Platform,
 } from 'react-native';
-import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, Swipeable, ScrollView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DonutChart from './src/DonutChart';
 import AddEntryModal from './src/AddEntryModal';
 import ProfileScreen from './src/ProfileScreen';
-import AllocationScreen from './src/AllocationScreen';
 import SavingsScreen from './src/SavingsScreen';
 import FireScreen from './src/FireScreen';
 import PortfolioScreen from './src/PortfolioScreen';
@@ -15,11 +14,11 @@ import LoginScreen from './src/LoginScreen';
 import OnboardingScreen from './src/OnboardingScreen';
 import CalendarScreen from './src/CalendarScreen';
 import RecurringScreen from './src/RecurringScreen';
-import { COLORS, EXPENSE_CATEGORIES, categoryInfo, formatMoney } from './src/theme';
+import { COLORS, EXPENSE_CATEGORIES, categoryInfo, formatMoney, holdingValueUsd, amountUsd } from './src/theme';
 import { CatIcon } from './src/Icons';
 import { supabase, isSupabaseConfigured, authRedirectTo } from './src/supabase';
-import { loadAll, saveProfile, syncTransactions } from './src/db';
-import { calendarItems, firstPaymentOn, postedOccurrences, seriesIdOf, todayKey } from './src/recurring';
+import { loadAll, saveProfile, syncTransactions, syncSavings, syncPortfolio } from './src/db';
+import { calendarItems, cycleMonths, firstPaymentOn, postedOccurrences, seriesIdOf, todayKey } from './src/recurring';
 
 const today = todayKey();
 // Demo data only when there is no cloud backend configured.
@@ -31,11 +30,45 @@ const SEED = isSupabaseConfigured ? [] : [
   { id: '5', type: 'expense', amount: 90,   category: 'bills',     note: 'Internet',    recurring: true, repeatDay: 1, repeatMonths: 12, occurredOn: firstPaymentOn(1), date: firstPaymentOn(1) },
 ];
 
+// Holdings copied from the MyInvest portfolio screenshots.
+const MYINVEST_STOCKS = [
+  { id: 'st-aal', kind: 'Stock', name: 'AAL', qty: 1, price: 13.13, currency: 'USD' },
+  { id: 'st-gldm', kind: 'Stock', name: 'GLDM', qty: 60, price: 87.70, currency: 'USD' },
+  { id: 'st-googl', kind: 'Stock', name: 'GOOGL', qty: 9, price: 338.46, currency: 'USD' },
+  { id: 'st-ibit', kind: 'Stock', name: 'IBIT', qty: 39, price: 45.23, currency: 'USD' },
+  { id: 'st-li', kind: 'Stock', name: 'LI', qty: 325, price: 12.37, currency: 'USD' },
+  { id: 'st-nvda', kind: 'Stock', name: 'NVDA', qty: 80, price: 230.36, currency: 'USD' },
+  { id: 'st-rklb', kind: 'Stock', name: 'RKLB', qty: 15, price: 64.26, currency: 'USD' },
+  { id: 'st-smci', kind: 'Stock', name: 'SMCI', qty: 52, price: 39.59, currency: 'USD' },
+  { id: 'st-spcx', kind: 'Stock', name: 'SPCX', qty: 30, price: 147.95, currency: 'USD' },
+  { id: 'st-tsla', kind: 'Stock', name: 'TSLA', qty: 40, price: 354.08, currency: 'USD' },
+  { id: 'st-unh', kind: 'Stock', name: 'UNH', qty: 40, price: 397.14, currency: 'USD' },
+  { id: 'st-voo', kind: 'Stock', name: 'VOO', qty: 70, price: 708.01, currency: 'USD' },
+  { id: 'st-xe', kind: 'Stock', name: 'XE', qty: 74, price: 17.75, currency: 'USD' },
+];
+
+const MYINVEST_BONDS = [
+  { id: 'bd-amtlb3', kind: 'Bond', name: 'AMTLB3 (Team Telecom)', qty: 221, price: 104.4032, yield: 9.90, cycle: 'Yearly', currency: 'AMD', couponStart: '2026-09-15' },
+  { id: 'bd-fncabi', kind: 'Bond', name: 'FNCABI (Finca)', qty: 363, price: 102.3819, yield: 9.69, cycle: 'Yearly', currency: 'AMD', couponStart: '2026-09-15' },
+  { id: 'bd-intmb3', kind: 'Bond', name: 'INTMB3 (Invera)', qty: 300, price: 102.8437, yield: 10.45, cycle: 'Yearly', currency: 'AMD', couponStart: '2026-09-15' },
+  { id: 'bd-ktelb1', kind: 'Bond', name: 'KTELB1 (Ucom)', qty: 234, price: 100.70, yield: 7.12, cycle: 'Yearly', currency: 'USD', couponStart: '2026-09-15' },
+];
+
+function holdingTicker(h) {
+  return String(h && h.name || '').toUpperCase().split(/[\s(/·]/)[0];
+}
+
+function mergeMyInvestHoldings(list) {
+  const have = new Set((list || []).map(holdingTicker));
+  const extra = [...MYINVEST_STOCKS, ...MYINVEST_BONDS].filter((h) => !have.has(holdingTicker(h)));
+  return extra.length ? [...(list || []), ...extra] : list;
+}
+
 const ALLOC_BUCKETS = [
   { key: 'essentials', label: 'Spent', color: '#7C8CA3' },
   { key: 'savings', label: 'Savings', color: '#0EA47A' },
   { key: 'investments', label: 'Investments', color: '#4C8DFF' },
-  { key: 'fun', label: 'Fun', color: '#F5A623' },
+  { key: 'fun', label: 'Fun', color: '#FF7AC6' },
 ];
 
 // Whole-dollar formatter (no cents) for the suggested split.
@@ -72,23 +105,26 @@ function SwipeableTxRow({ t, onEdit, onDelete }) {
           {t.recurring && (
             <View style={styles.repTag}>
               <CatIcon name="autorenew" size={11} color={COLORS.header} />
-              <Text style={styles.repTagText}>Monthly</Text>
+              <Text style={styles.repTagText}>{t.bondId ? (t.cycle || 'Coupon') : 'Monthly'}</Text>
             </View>
           )}
         </View>
         {!!t.note && <Text style={styles.txNote}>{t.note}</Text>}
       </View>
       <Text style={[styles.txAmount, { color: isIncome ? COLORS.income : COLORS.expense }]}>
-        {isIncome ? '+' : '−'}{formatMoney(t.amount)}
+        {isIncome ? '+' : '−'}{formatMoney(t.amount, t.currency)}
       </Text>
     </View>
   );
   if (t.bondId) return rowInner; // bond coupons are auto-generated, not editable
-  if (t.recurring) return rowInner; // edit/delete repeating items on the Repeating screen
   return (
     <Swipeable
       ref={ref}
       overshootRight={false}
+      friction={2}
+      rightThreshold={36}
+      activeOffsetX={[-12, 12]}
+      failOffsetY={[-16, 16]}
       renderRightActions={() => (
         <View style={styles.swipeActions}>
           <TouchableOpacity style={[styles.swipeBtn, { backgroundColor: '#4C8DFF' }]} onPress={() => { close(); onEdit(t); }}>
@@ -129,10 +165,7 @@ export default function App() {
     { id: 's1', name: 'Emergency Fund', balance: 5000 },
     { id: 's2', name: 'HYSA', balance: 12000 },
   ]);
-  const [portfolio, setPortfolio] = useState([
-    { id: 'p1', kind: 'Stock', name: 'AAPL', qty: 10, price: 220 },
-    { id: 'p2', kind: 'Metal', name: 'Gold (oz)', qty: 2, price: 2400 },
-  ]);
+  const [portfolio, setPortfolio] = useState(() => [...MYINVEST_STOCKS, ...MYINVEST_BONDS, { id: 'p-gold', kind: 'Metal', name: 'Gold (oz)', qty: 2, price: 2400 }]);
 
   const cloud = isSupabaseConfigured && !!(user && user.id);
 
@@ -154,10 +187,25 @@ export default function App() {
     if (!cloud) return;
     let alive = true;
     setLoaded(false);
-    loadAll(user.id).then((d) => {
+    loadAll(user.id).then(async (d) => {
       if (!alive) return;
       setProfile(d.profile);
       setTransactions(d.transactions);
+      let savings = d.savingsAccounts || [];
+      let holdings = d.portfolio || [];
+      let split = d.alloc;
+      if (!savings.length || !holdings.length || !split) {
+        try {
+          const v = await AsyncStorage.getItem('p2w_local');
+          const local = v ? JSON.parse(v) : {};
+          if (!savings.length && local.savingsAccounts) savings = local.savingsAccounts;
+          if (!holdings.length && local.portfolio) holdings = local.portfolio;
+          if (!split && local.alloc) split = local.alloc;
+        } catch (e) {}
+      }
+      if (savings.length) setSavingsAccounts(savings);
+      if (holdings.length) setPortfolio(holdings);
+      if (split) setAlloc(split);
       setLoaded(true);
     }).catch(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
@@ -166,8 +214,8 @@ export default function App() {
   // ── Save profile + transactions to the cloud (best-effort, debounced) ──
   useEffect(() => {
     if (!cloud || !loaded || !profile) return;
-    saveProfile(user.id, profile).catch(() => {});
-  }, [profile, loaded]);
+    saveProfile(user.id, profile, alloc).catch(() => {});
+  }, [profile, alloc, loaded]);
 
   useEffect(() => {
     if (!cloud || !loaded) return;
@@ -179,29 +227,59 @@ export default function App() {
     return () => clearTimeout(h);
   }, [transactions, loaded]);
 
-  // ── Local persistence for savings / portfolio / allocation (survives reload on this phone) ──
   useEffect(() => {
+    if (!cloud || !loaded) return;
+    const h = setTimeout(() => {
+      syncSavings(user.id, savingsAccounts).then((res) => {
+        if (res && res.error) console.warn('Supabase savings save failed:', res.error.message);
+        else if (res && res.rewritten && res.items) setSavingsAccounts(res.items);
+      }).catch((e) => console.warn('Supabase savings save failed:', e));
+    }, 700);
+    return () => clearTimeout(h);
+  }, [savingsAccounts, loaded]);
+
+  useEffect(() => {
+    if (!cloud || !loaded) return;
+    const h = setTimeout(() => {
+      syncPortfolio(user.id, portfolio).then((res) => {
+        if (res && res.error) console.warn('Supabase portfolio save failed:', res.error.message);
+        else if (res && res.rewritten && res.items) setPortfolio(res.items);
+      }).catch((e) => console.warn('Supabase portfolio save failed:', e));
+    }, 700);
+    return () => clearTimeout(h);
+  }, [portfolio, loaded]);
+
+  // Local cache so the phone still has a copy if the network is down.
+  useEffect(() => {
+    if (cloud) return;
     AsyncStorage.getItem('p2w_local').then((v) => {
       if (!v) return;
       try {
         const d = JSON.parse(v);
         if (d.savingsAccounts) setSavingsAccounts(d.savingsAccounts);
-        if (d.portfolio) setPortfolio(d.portfolio);
+        if (d.portfolio) setPortfolio(mergeMyInvestHoldings(d.portfolio));
         if (d.alloc) setAlloc(d.alloc);
       } catch (e) {}
     }).catch(() => {});
-  }, []);
+  }, [cloud]);
   useEffect(() => {
     AsyncStorage.setItem('p2w_local', JSON.stringify({ savingsAccounts, portfolio, alloc })).catch(() => {});
   }, [savingsAccounts, portfolio, alloc]);
 
-  // Bond coupons are derived from the portfolio (never stored).
+  // Bond coupons are derived from the portfolio (never stored). Native currency; totals convert AMD → USD.
   const bondTx = useMemo(() => portfolio.filter((h) => h.kind === 'Bond' && h.yield).map((h) => {
-    const perMonth = ((h.qty * h.price) * (h.yield || 0) / 100) / 12;
-    const start = firstPaymentOn(1);
-    return { id: 'bond-' + h.id, bondId: h.id, type: 'income', amount: Math.round(perMonth * 100) / 100,
-      category: 'bond', note: h.name + ' coupon (per month)', recurring: true, repeatDay: 1, repeatMonths: 12,
-      occurredOn: start, date: start };
+    const interval = cycleMonths(h.cycle);
+    const face = (Number(h.qty) || 0) * (Number(h.price) || 0);
+    const perCoupon = Math.round(face * (Number(h.yield) || 0) / 100 * (interval / 12) * 100) / 100;
+    const start = h.couponStart || todayKey();
+    const day = Number(String(start).slice(8, 10)) || 1;
+    return {
+      id: 'bond-' + h.id, bondId: h.id, type: 'income', amount: perCoupon,
+      currency: h.currency || 'USD', cycle: h.cycle || 'Yearly',
+      category: 'bond', note: h.name + ' coupon', recurring: true,
+      repeatDay: day, repeatEveryMonths: interval, horizonMonths: 24,
+      occurredOn: start, date: start,
+    };
   }), [portfolio]);
 
   const allTx = useMemo(() => [...bondTx, ...transactions], [bondTx, transactions]);
@@ -210,15 +288,43 @@ export default function App() {
 
   const totals = useMemo(() => {
     let income = 0, expense = 0;
-    for (const t of postedTx) { if (t.type === 'income') income += t.amount; else expense += t.amount; }
+    for (const t of postedTx) {
+      const usd = amountUsd(t.amount, t.currency);
+      if (t.type === 'income') income += usd; else expense += usd;
+    }
     return { income, expense, balance: income - expense };
   }, [postedTx]);
 
+  const monthPrefix = today.slice(0, 7);
+  // This month's plan: each repeating expense once, plus one-time expenses in this month.
+  const monthExpenseRows = useMemo(() => {
+    const seen = new Set();
+    const rows = [];
+    for (const t of transactions) {
+      if (t.type !== 'expense') continue;
+      if (t.recurring) {
+        const id = seriesIdOf(t);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        rows.push(t);
+      } else if (String(t.occurredOn || t.date || '').startsWith(monthPrefix)) {
+        rows.push(t);
+      }
+    }
+    return rows;
+  }, [transactions, monthPrefix]);
+
   const donutData = useMemo(() => {
     const byCat = {};
-    for (const t of postedTx) { if (t.type !== 'expense') continue; byCat[t.category] = (byCat[t.category] || 0) + t.amount; }
-    return EXPENSE_CATEGORIES.filter((c) => byCat[c.key]).map((c) => ({ key: c.key, label: c.label, value: byCat[c.key], color: c.color, icon: c.icon }));
-  }, [postedTx]);
+    for (const t of monthExpenseRows) {
+      const usd = amountUsd(t.amount, t.currency);
+      byCat[t.category] = (byCat[t.category] || 0) + usd;
+    }
+    return EXPENSE_CATEGORIES.filter((c) => byCat[c.key]).map((c) => ({
+      key: c.key, label: c.label, value: byCat[c.key], color: c.color, icon: c.icon,
+    }));
+  }, [monthExpenseRows]);
+  const monthDonutTotal = donutData.reduce((s, d) => s + d.value, 0);
 
   function openModal(type) { setEditEntry(null); setModalType(type); setModalVisible(true); }
   function editTx(t) {
@@ -229,20 +335,35 @@ export default function App() {
     setModalVisible(true);
   }
   function deleteTx(id) {
-    const realId = String(id).split('@')[0];
-    setTransactions((prev) => prev.filter((x) => x.id !== realId && x.id !== id));
+    const realId = seriesIdOf({ id });
+    setTransactions((prev) => prev.filter((x) => seriesIdOf(x) !== realId && x.id !== id));
+    setPortfolio((prev) => prev.filter((h) => h.id !== 'realty-' + realId && h.id !== realId));
   }
   function handleSave(entry) {
-    // A bond entered from the income screen becomes a Portfolio asset (single source of truth);
-    // its monthly income is derived automatically, so we don't also store a transaction.
     if (entry && entry.__asset === 'bond') {
       const h = { id: Date.now().toString(), kind: 'Bond', name: entry.name || 'Bond',
-        qty: 1, price: entry.value || 0, yield: entry.yield || 0, cycle: entry.cycle || 'Yearly', currency: entry.currency || 'USD' };
+        qty: 1, price: entry.value || 0, yield: entry.yield || 0, cycle: entry.cycle || 'Yearly',
+        currency: entry.currency || 'USD', couponStart: entry.couponStart || todayKey() };
       setPortfolio((prev) => [...prev, h]);
       setSelectedKey(null); setModalVisible(false); setEditEntry(null);
       return;
     }
-    setTransactions((prev) => prev.some((x) => x.id === entry.id) ? prev.map((x) => (x.id === entry.id ? entry : x)) : [entry, ...prev]);
+    const id = seriesIdOf(entry);
+    const next = { ...entry, id };
+    setTransactions((prev) => {
+      const exists = prev.some((x) => seriesIdOf(x) === id);
+      const updated = exists ? prev.map((x) => (seriesIdOf(x) === id ? next : x)) : [next, ...prev];
+      return updated;
+    });
+    if (next.category === 'rent') {
+      const realtyId = 'realty-' + id;
+      setPortfolio((prev) => {
+        const without = prev.filter((h) => h.id !== realtyId);
+        if (!(next.propertyValue > 0)) return without;
+        const h = { id: realtyId, kind: 'Realty', name: next.note || 'Real estate', qty: 1, price: next.propertyValue, currency: 'USD' };
+        return [...without, h];
+      });
+    }
     setSelectedKey(null); setModalVisible(false); setEditEntry(null);
   }
 
@@ -346,12 +467,31 @@ export default function App() {
   const recent = postedTx.slice(0, 8);
   const profileIncome = parseFloat(String((profile && profile.income) || '').replace(/[^0-9.]/g, '')) || 0;
   const savingsTotal = savingsAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
-  const portfolioTotal = portfolio.reduce((sum, h) => sum + (h.qty * h.price || 0), 0);
+  const emergencyFund = savingsAccounts.filter((a) => /emergency|rainy/i.test(a.name || '')).reduce((sum, a) => sum + (a.balance || 0), 0);
+  const portfolioTotal = portfolio.reduce((sum, h) => sum + holdingValueUsd(h), 0);
+  let monthSpent = 0, monthFun = 0;
+  for (const t of monthExpenseRows) {
+    const usd = amountUsd(t.amount, t.currency);
+    if (t.category === 'fun') monthFun += usd;
+    else monthSpent += usd;
+  }
+  const repeatingMonthly = transactions
+    .filter((t) => t.type === 'expense' && t.recurring)
+    .reduce((s, t) => s + amountUsd(t.amount, t.currency), 0);
+  const postedAnnual = (monthSpent + monthFun) * 12;
+  const splitAnnual = profileIncome * ((alloc.essentials || 0) + (alloc.fun || 0)) / 100 * 12;
+  const fireAnnualSpend = Math.round(Math.max(repeatingMonthly * 12, postedAnnual, splitAnnual) || 0);
+  const splitCurrent = {
+    essentials: monthSpent,
+    savings: savingsTotal,
+    investments: portfolioTotal,
+    fun: monthFun,
+  };
   const fireSources = [];
   if (savingsTotal) fireSources.push({ label: 'Savings', amount: savingsTotal });
   const byKind = {};
-  portfolio.forEach((h) => { byKind[h.kind] = (byKind[h.kind] || 0) + (h.qty * h.price || 0); });
-  [['Stock', 'Stocks'], ['Metal', 'Precious metals'], ['Paper', 'Precious paper'], ['Bond', 'Bonds']].forEach(([k, l]) => { if (byKind[k]) fireSources.push({ label: l, amount: byKind[k] }); });
+  portfolio.forEach((h) => { byKind[h.kind] = (byKind[h.kind] || 0) + holdingValueUsd(h); });
+  [['Stock', 'Stocks'], ['Metal', 'Precious metals'], ['Paper', 'Precious paper'], ['Bond', 'Bonds'], ['Realty', 'Real estate']].forEach(([k, l]) => { if (byKind[k]) fireSources.push({ label: l, amount: byKind[k] }); });
 
   return (
     <GestureHandlerRootView style={styles.root}>
@@ -389,25 +529,40 @@ export default function App() {
         <ScrollView style={styles.scroll} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           <View style={styles.chartCard}>
             <View style={styles.chartTitleRow}>
-              <Text style={styles.chartTitle}>Monthly expenses</Text>
+              <TouchableOpacity onPress={() => setSelectedKey(null)} activeOpacity={0.7}>
+                <Text style={styles.chartTitle}>Monthly expenses</Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => setSplitOpen(!splitOpen)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <CatIcon name={splitOpen ? 'eye-outline' : 'eye-off-outline'} size={22} color={COLORS.textMuted} />
               </TouchableOpacity>
             </View>
             <View style={styles.chartTop}>
-              <DonutChart data={donutData} selectedKey={selectedKey} onSelectSlice={setSelectedKey} centerTitle="Spent" size={150} strokeWidth={26} />
+              <DonutChart data={donutData} selectedKey={selectedKey} onSelectSlice={setSelectedKey} centerTitle="Expenses" size={150} strokeWidth={26} />
               {splitOpen && (
               <View style={styles.allocSummary}>
                 <Text style={styles.allocSummaryTitle}>Suggested split</Text>
-                {ALLOC_BUCKETS.map((b) => (
-                  <View key={b.key} style={styles.allocSumRow}>
-                    <View style={[styles.allocSumDot, { backgroundColor: b.color }]} />
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.allocSumLabel}>{b.label}</Text>
-                      <Text style={styles.allocSumAmt}>{moneyWhole(profileIncome * (alloc[b.key] || 0) / 100)}</Text>
+                {ALLOC_BUCKETS.map((b) => {
+                  const target = profileIncome * (alloc[b.key] || 0) / 100;
+                  const current = splitCurrent[b.key] || 0;
+                  const spendLike = b.key === 'essentials' || b.key === 'fun';
+                  const exceeded = spendLike ? current > target : current < target;
+                  return (
+                    <View key={b.key} style={styles.allocSumRow}>
+                      <View style={[styles.allocSumDot, { backgroundColor: b.color }]} />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.allocSumLabel}>{b.label}</Text>
+                        <Text
+                          style={[styles.allocSumAmt, { color: exceeded ? COLORS.expense : COLORS.income }]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.7}
+                        >
+                          {moneyWhole(target)} / {moneyWhole(current)}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
               )}
             </View>
@@ -417,7 +572,7 @@ export default function App() {
               )}
               {donutData.map((d) => {
                 const active = selectedKey === d.key;
-                const pct = totals.expense ? Math.round((d.value / totals.expense) * 100) : 0;
+                const pct = monthDonutTotal ? Math.round((d.value / monthDonutTotal) * 100) : 0;
                 return (
                   <TouchableOpacity key={d.key} style={[styles.legendRow, active && styles.legendRowActive]} onPress={() => setSelectedKey(active ? null : d.key)}>
                     <View style={styles.legendIcon}><CatIcon name={d.icon} color={d.color} size={20} /></View>
@@ -436,11 +591,6 @@ export default function App() {
           </TouchableOpacity>
           {planOpen && (
           <View style={styles.listCard}>
-            <TouchableOpacity style={styles.toolRow} onPress={() => setTool('allocate')}>
-              <View style={[styles.toolIcon, { backgroundColor: '#0EA47A18' }]}><CatIcon name="calculator-variant" size={22} color={COLORS.header} /></View>
-              <View style={{ flex: 1 }}><Text style={styles.toolTitle}>Smart Allocation</Text><Text style={styles.toolSub}>Split income into savings, investing & fun</Text></View>
-              <CatIcon name="chevron-right" size={22} color={COLORS.textMuted} />
-            </TouchableOpacity>
             <TouchableOpacity style={styles.toolRow} onPress={() => setTool('savings')}>
               <View style={[styles.toolIcon, { backgroundColor: '#F5A62318' }]}><CatIcon name="piggy-bank" size={22} color="#F5A623" /></View>
               <View style={{ flex: 1 }}><Text style={styles.toolTitle}>Savings</Text><Text style={styles.toolSub}>Track savings across your accounts</Text></View>
@@ -490,6 +640,13 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
+        <CalendarScreen
+          visible={calendarOpen}
+          transactions={calTx}
+          onClose={() => setCalendarOpen(false)}
+          onEdit={editTx}
+          onDelete={deleteTx}
+        />
         <AddEntryModal
           visible={modalVisible}
           initialType={modalType}
@@ -497,20 +654,34 @@ export default function App() {
           onClose={() => { setModalVisible(false); setEditEntry(null); }}
           onSave={handleSave}
         />
-
-        <CalendarScreen visible={calendarOpen} transactions={calTx} onClose={() => setCalendarOpen(false)} />
         <ProfileScreen
           visible={profileOpen}
           profile={profile}
+          alloc={alloc}
+          setAlloc={setAlloc}
           onClose={() => setProfileOpen(false)}
           onSave={(p) => { setProfile(p); setProfileOpen(false); }}
           onLogout={() => { setProfileOpen(false); signOut(); }}
         />
-
-        <AllocationScreen visible={tool === 'allocate'} income={profileIncome} alloc={alloc} setAlloc={setAlloc} onClose={() => setTool(null)} />
         <SavingsScreen visible={tool === 'savings'} accounts={savingsAccounts} setAccounts={setSavingsAccounts} onClose={() => setTool(null)} />
         <PortfolioScreen visible={tool === 'portfolio'} holdings={portfolio} setHoldings={setPortfolio} onClose={() => setTool(null)} />
-        <FireScreen visible={tool === 'fire'} currentSavings={savingsTotal + portfolioTotal} monthlyContribution={Math.round(profileIncome * 0.35)} annualExpensesGuess={Math.round(profileIncome * 12 * 0.6)} sources={fireSources} onClose={() => setTool(null)} />
+        <FireScreen
+          visible={tool === 'fire'}
+          currentSavings={savingsTotal + portfolioTotal}
+          monthlyContribution={Math.round(profileIncome * ((alloc.savings || 0) + (alloc.investments || 0)) / 100)}
+          annualExpensesGuess={fireAnnualSpend}
+          sources={fireSources}
+          monthlyBills={transactions.filter((t) => t.type === 'expense' && t.recurring).map((t) => ({
+            label: t.note || categoryInfo('expense', t.category).label,
+            amount: Number(t.amount) || 0,
+          }))}
+          monthlyIncome={profileIncome}
+          liquidSavings={savingsTotal}
+          emergencyFund={emergencyFund}
+          age={(profile && profile.age) || ''}
+          goal={(profile && profile.goal) || ''}
+          onClose={() => setTool(null)}
+        />
         <RecurringScreen
           visible={tool === 'recurring'}
           items={transactions.filter((t) => t.recurring && !t.bondId)}
@@ -558,7 +729,7 @@ const styles = StyleSheet.create({
   allocSumRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 },
   allocSumDot: { width: 9, height: 9, borderRadius: 5, marginRight: 8 },
   allocSumLabel: { fontSize: 11.5, color: COLORS.textMuted },
-  allocSumAmt: { fontSize: 14, fontWeight: '700', color: COLORS.text },
+  allocSumAmt: { fontSize: 13, fontWeight: '700', color: COLORS.income },
   allocExpRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: COLORS.border, marginTop: 4, paddingTop: 8 },
   allocExpLabel: { fontSize: 12, fontWeight: '700', color: COLORS.text },
   allocExpAmt: { fontSize: 14, fontWeight: '800', color: COLORS.text },
@@ -575,7 +746,7 @@ const styles = StyleSheet.create({
   sectionHeadText: { fontSize: 16, fontWeight: '700', color: COLORS.text },
   swipeHint: { fontSize: 12, color: COLORS.textMuted, marginLeft: 4, marginTop: -4, marginBottom: 8 },
   listCard: {
-    backgroundColor: COLORS.card, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, overflow: 'hidden',
+    backgroundColor: COLORS.card, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6,
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   txRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, backgroundColor: COLORS.card, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },

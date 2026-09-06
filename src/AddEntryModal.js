@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Pressable,
 } from 'react-native';
 import { COLORS, EXPENSE_CATEGORIES, INCOME_CATEGORIES, formatMoney, groupDigits, ordinal } from './theme';
 import { CatIcon } from './Icons';
@@ -33,6 +33,7 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
   const [repeatDay, setRepeatDay] = useState(new Date().getDate());
   const [repeatMonths, setRepeatMonths] = useState(12);
   const [occurredOn, setOccurredOn] = useState(todayKey());
+  const [propertyValue, setPropertyValue] = useState('');
 
   const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
   const editing = !!source;
@@ -48,6 +49,7 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
       setRepeatDay(source.repeatDay || new Date().getDate());
       setRepeatMonths(source.repeatMonths || 12);
       setOccurredOn(source.occurredOn || String(source.date || '').slice(0, 10) || todayKey());
+      setPropertyValue(source.propertyValue != null ? String(source.propertyValue) : '');
     } else {
       setType(initialType);
       setAmount('');
@@ -57,6 +59,7 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
       setRepeatDay(new Date().getDate());
       setRepeatMonths(12);
       setOccurredOn(todayKey());
+      setPropertyValue('');
     }
   }, [visible, initialType, source]);
 
@@ -73,7 +76,7 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
         : firstPaymentOn(repeatDay))
       : occurredOn;
     onSave({
-      id: source?.seriesId || source?.id || Date.now().toString(),
+      id: source?.seriesId || String(source?.id || '').split('@')[0] || Date.now().toString(),
       type,
       amount: numericAmount,
       category: categoryKey,
@@ -83,6 +86,9 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
       repeatMonths: recurring ? repeatMonths : null,
       occurredOn: payment,
       date: payment,
+      propertyValue: type === 'income' && categoryKey === 'rent'
+        ? (parseFloat(propertyValue) || 0)
+        : undefined,
     });
   }
 
@@ -110,37 +116,57 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
             </TouchableOpacity>
           </View>
 
-          {/* Amount */}
-          <View style={styles.amountRow}>
-            <Text style={[styles.amountCurrency, { color: accent }]}>$</Text>
-            <TextInput
-              style={[styles.amountInput, { color: accent, fontSize: groupDigits(amount).length > 9 ? 30 : groupDigits(amount).length > 6 ? 36 : 44 }]}
-              value={groupDigits(amount)}
-              onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ''))}
-              placeholder="0"
-              placeholderTextColor={COLORS.textMuted}
-              keyboardType="decimal-pad"
-              autoFocus
-            />
-          </View>
+          <Pressable onPress={() => setCategoryKey(null)}>
+            {/* Amount */}
+            <View style={styles.amountRow}>
+              <Text style={[styles.amountCurrency, { color: accent }]}>$</Text>
+              <TextInput
+                style={[styles.amountInput, { color: accent, fontSize: groupDigits(amount).length > 9 ? 30 : groupDigits(amount).length > 6 ? 36 : 44 }]}
+                value={groupDigits(amount)}
+                onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ''))}
+                placeholder="0"
+                placeholderTextColor={COLORS.textMuted}
+                keyboardType="decimal-pad"
+                autoFocus
+              />
+            </View>
 
-          {/* Category picker — all shown, no scrolling */}
-          <Text style={styles.sectionLabel}>CATEGORY</Text>
-          <View style={styles.catGrid}>
-            {categories.map((c) => {
-              const active = c.key === categoryKey;
-              return (
-                <TouchableOpacity
-                  key={c.key}
-                  style={[styles.catItem, active && { borderColor: c.color, backgroundColor: c.color + '18' }]}
-                  onPress={() => setCategoryKey(c.key)}
-                >
-                  <CatIcon name={c.icon} size={22} color={active ? c.color : COLORS.text} />
-                  <Text style={styles.catLabel}>{c.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+            {/* Category picker — all shown, no scrolling */}
+            <Text style={styles.sectionLabel}>CATEGORY</Text>
+            <View style={styles.catGrid}>
+              {categories.map((c) => {
+                const active = c.key === categoryKey;
+                return (
+                  <TouchableOpacity
+                    key={c.key}
+                    style={[styles.catItem, active && { borderColor: c.color, backgroundColor: c.color + '18' }]}
+                    onPress={() => setCategoryKey(active ? null : c.key)}
+                  >
+                    <CatIcon name={c.icon} size={22} color={active ? c.color : COLORS.text} />
+                    <Text style={styles.catLabel}>{c.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Pressable>
+
+          {type === 'income' && categoryKey === 'rent' && (
+            <View style={styles.realtyBox}>
+              <Text style={styles.sectionLabel}>REAL ESTATE (APPROX.)</Text>
+              <View style={styles.realtyRow}>
+                <Text style={styles.realtyCur}>$</Text>
+                <TextInput
+                  style={styles.realtyInput}
+                  value={groupDigits(propertyValue)}
+                  onChangeText={(t) => setPropertyValue(t.replace(/[^0-9.]/g, ''))}
+                  placeholder="Property value"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <Text style={styles.realtyHint}>Optional. Counted in your portfolio and FIRE forecast.</Text>
+            </View>
+          )}
 
           {/* Repeat — only appears once a category is chosen */}
           {!!categoryKey && (<>
@@ -224,6 +250,14 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.card, gap: 5,
   },
   catLabel: { fontSize: 11, color: COLORS.text },
+  realtyBox: { marginTop: 14 },
+  realtyRow: {
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: COLORS.border,
+    borderRadius: 12, paddingHorizontal: 14, backgroundColor: COLORS.background,
+  },
+  realtyCur: { fontSize: 18, color: COLORS.header, fontWeight: '700', marginRight: 6 },
+  realtyInput: { flex: 1, fontSize: 16, color: COLORS.text, paddingVertical: 13 },
+  realtyHint: { fontSize: 12, color: COLORS.textMuted, marginTop: 6 },
   repToggle: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14,
     borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12, paddingVertical: 12, backgroundColor: COLORS.card,

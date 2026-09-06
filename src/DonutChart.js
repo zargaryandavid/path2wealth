@@ -1,7 +1,15 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 import { COLORS, formatMoney } from './theme';
+
+function compactMoney(amount) {
+  const n = Number(amount) || 0;
+  if (Math.abs(n - Math.round(n)) >= 0.005) return formatMoney(n);
+  const sign = n < 0 ? '-' : '';
+  const intPart = String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return sign + '$' + intPart;
+}
 
 // The donut chart. We draw it by hand with SVG circles instead of using a
 // heavy chart library, so it stays fast and always works inside Expo Go.
@@ -24,6 +32,9 @@ export default function DonutChart({
   const selected = data.find((d) => d.key === selectedKey);
   const centerAmount = selected ? selected.value : total;
   const centerLabel = selected ? selected.label : centerTitle;
+  const amountText = compactMoney(centerAmount);
+  const hole = Math.max(48, size - strokeWidth - 8);
+  const amountSize = Math.max(10, Math.min(22, Math.floor((hole - 16) / Math.max(amountText.length * 0.72, 4))));
 
   let offsetAcc = 0;
 
@@ -60,16 +71,23 @@ export default function DonutChart({
       </Svg>
 
       {/* The number in the middle of the donut. */}
-      <View style={styles.center} pointerEvents="none">
-        <Text style={styles.centerLabel}>{centerLabel}</Text>
-        <Text style={styles.centerAmount}>{formatMoney(centerAmount)}</Text>
-      </View>
+      <Pressable
+        style={[styles.center, { width: hole, height: hole }]}
+        onPress={() => onSelectSlice(null)}
+      >
+        <Text style={[styles.centerLabel, { fontSize: Math.max(10, Math.round(size * 0.07)) }]} numberOfLines={1}>
+          {centerLabel}
+        </Text>
+        <Text style={[styles.centerAmount, { fontSize: amountSize, width: hole - 12 }]} numberOfLines={1}>
+          {amountText}
+        </Text>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   center: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  centerLabel: { color: COLORS.textMuted, fontSize: 13, marginBottom: 2 },
-  centerAmount: { color: COLORS.text, fontSize: 25, fontWeight: '700' },
+  centerLabel: { color: COLORS.textMuted, marginBottom: 2, textAlign: 'center' },
+  centerAmount: { color: COLORS.text, fontWeight: '700', textAlign: 'center' },
 });

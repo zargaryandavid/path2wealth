@@ -1,4 +1,4 @@
--- Path2Wealth — run this once in Supabase → SQL Editor.
+-- Combined schema. Same as ../schema.sql — run either file once in SQL Editor.
 -- Safe to re-run: creates missing tables/columns, leaves existing data alone.
 
 -- 1) PROFILES

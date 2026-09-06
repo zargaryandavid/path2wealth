@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, StatusBar, Alert,
+  Modal, View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView, StatusBar,
 } from 'react-native';
 import { COLORS, categoryInfo, formatMoney, ordinal } from './theme';
 import { CatIcon } from './Icons';
+import { seriesIdOf } from './recurring';
 
 function RecurringRow({ item, onEdit, onRemove }) {
   const info = categoryInfo(item.type, item.category);
@@ -40,19 +41,22 @@ function RecurringRow({ item, onEdit, onRemove }) {
 }
 
 export default function RecurringScreen({ visible, items, onClose, onEdit, onRemove }) {
+  const [pending, setPending] = useState(null);
   const income = items.filter((t) => t.type === 'income');
   const expenses = items.filter((t) => t.type === 'expense');
 
+  useEffect(() => {
+    if (!visible) setPending(null);
+  }, [visible]);
+
   function confirmRemove(item) {
-    const info = categoryInfo(item.type, item.category);
-    Alert.alert(
-      'Remove repeating item?',
-      `${info.label} · ${formatMoney(item.amount)} will stop repeating.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => onRemove(item.id) },
-      ],
-    );
+    setPending(item);
+  }
+
+  function doRemove() {
+    if (!pending) return;
+    onRemove(seriesIdOf(pending));
+    setPending(null);
   }
 
   return (
@@ -94,6 +98,22 @@ export default function RecurringScreen({ visible, items, onClose, onEdit, onRem
             </>
           )}
         </ScrollView>
+        {pending && (
+          <View style={styles.confirmBar}>
+            <Text style={styles.confirmText}>
+              Remove {categoryInfo(pending.type, pending.category).label}
+              {pending.note ? ` · ${pending.note}` : ''}?
+            </Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity style={styles.confirmCancel} onPress={() => setPending(null)}>
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.confirmRemove} onPress={doRemove}>
+                <Text style={styles.confirmRemoveText}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -121,4 +141,20 @@ const styles = StyleSheet.create({
   amount: { fontSize: 15, fontWeight: '700' },
   actions: { flexDirection: 'row', gap: 8, marginTop: 8 },
   actBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center' },
+  confirmBar: {
+    marginHorizontal: 16, marginBottom: 20, padding: 14, borderRadius: 14,
+    backgroundColor: COLORS.background, borderWidth: 1.5, borderColor: COLORS.border,
+  },
+  confirmText: { fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 12, lineHeight: 20 },
+  confirmActions: { flexDirection: 'row', gap: 10 },
+  confirmCancel: {
+    flex: 1, minHeight: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.card, borderWidth: 1.5, borderColor: COLORS.border,
+  },
+  confirmCancelText: { fontSize: 15, fontWeight: '700', color: COLORS.text },
+  confirmRemove: {
+    flex: 1, minHeight: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.expense,
+  },
+  confirmRemoveText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
 });

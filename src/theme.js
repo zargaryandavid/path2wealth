@@ -16,14 +16,19 @@ export const COLORS = {
 // Categories your EXPENSES can fall into (shown in the donut chart).
 // Each one has an emoji icon and its own color slice.
 export const EXPENSE_CATEGORIES = [
-  { key: 'food',      label: 'Food',      icon: 'food', color: '#F5A623' },
-  { key: 'transport', label: 'Transport', icon: 'car', color: '#4C8DFF' },
-  { key: 'shopping',  label: 'Shopping',  icon: 'shopping', color: '#B15CFF' },
-  { key: 'bills',     label: 'Bills',     icon: 'receipt', color: '#FF6B6B' },
-  { key: 'fun',       label: 'Fun',       icon: 'party-popper', color: '#FF7AC6' },
-  { key: 'health',    label: 'Health',    icon: 'pill', color: '#2CC9B5' },
-  { key: 'home',      label: 'Home',      icon: 'home-variant', color: '#7C8CA3' },
-  { key: 'other',     label: 'Other',     icon: 'dots-horizontal', color: '#A0AAB8' },
+  { key: 'food',       label: 'Food',       icon: 'food',            color: '#F5A623' },
+  { key: 'transport',  label: 'Transport',  icon: 'car',             color: '#4C8DFF' },
+  { key: 'shopping',   label: 'Shopping',   icon: 'shopping',        color: '#B15CFF' },
+  { key: 'bills',      label: 'Bills',      icon: 'receipt',         color: '#FF6B6B' },
+  { key: 'fun',        label: 'Fun',        icon: 'party-popper',    color: '#FF7AC6' },
+  { key: 'health',     label: 'Health',     icon: 'pill',            color: '#2CC9B5' },
+  { key: 'home',       label: 'Home',       icon: 'home-variant',    color: '#7C8CA3' },
+  { key: 'rent',       label: 'Rent',       icon: 'key-variant',     color: '#5B6CFF' },
+  { key: 'lease',      label: 'Lease',      icon: 'file-sign',       color: '#16A085' },
+  { key: 'finance',    label: 'Finance',    icon: 'bank',            color: '#C0392B' },
+  { key: 'insurance',  label: 'Insurance',  icon: 'shield-check',    color: '#3FB984' },
+  { key: 'investment', label: 'Investment', icon: 'star',            color: '#4C8DFF' },
+  { key: 'other',      label: 'Other',      icon: 'dots-horizontal', color: '#A0AAB8' },
 ];
 
 // Categories your INCOME can come from.
@@ -45,14 +50,34 @@ export function categoryInfo(type, key) {
   return list.find((c) => c.key === key) || list[list.length - 1];
 }
 
-// Turns a number like 1234.5 into a tidy "$1,234.50".
-export function formatMoney(amount) {
+const CURRENCY_SYM = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', CHF: 'CHF ', CAD: 'C$', AUD: 'A$', AMD: '֏' };
+
+export function currencySymbol(code) {
+  return CURRENCY_SYM[code] || '$';
+}
+
+// Turns a number like 1234.5 into a tidy "$1,234.50" (or ֏ / € when currency is set).
+export function formatMoney(amount, currency = 'USD') {
   const n = Number(amount) || 0;
   const sign = n < 0 ? '-' : '';
   const fixed = Math.abs(n).toFixed(2);
   const [intPart, decPart] = fixed.split('.');
   const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return sign + '$' + withCommas + '.' + decPart;
+  const sym = currency && currency !== 'USD' ? currencySymbol(currency) : '$';
+  return sign + sym + withCommas + '.' + decPart;
+}
+
+// Approximate AMD per 1 USD so dram-priced holdings don't get treated as dollars.
+export const AMD_PER_USD = 387;
+
+export function amountUsd(amount, currency) {
+  const n = Number(amount) || 0;
+  return currency === 'AMD' ? n / AMD_PER_USD : n;
+}
+
+export function holdingValueUsd(h) {
+  const raw = (Number(h && h.qty) || 0) * (Number(h && h.price) || 0);
+  return amountUsd(raw, h && h.currency);
 }
 
 // Groups a raw number string with commas: "150000" -> "150,000". Keeps up to 2 decimals.

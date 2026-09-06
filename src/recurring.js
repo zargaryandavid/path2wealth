@@ -59,17 +59,43 @@ export function firstPaymentOn(repeatDay, from = new Date()) {
   return dateInMonth(next.getFullYear(), next.getMonth(), day);
 }
 
+export function cycleMonths(cycle) {
+  if (cycle === 'Monthly') return 1;
+  if (cycle === 'Quarterly') return 3;
+  if (cycle === '6 months') return 6;
+  return 12;
+}
+
 export function expandSeries(t) {
-  const months = Math.min(36, Math.max(1, Number(t.repeatMonths) || 12));
-  const day = Math.min(Math.max(1, Number(t.repeatDay) || 1), 31);
-  const startKey = t.occurredOn || t.date || firstPaymentOn(day);
+  const interval = Math.max(1, Number(t.repeatEveryMonths) || 1);
+  const startKey = t.occurredOn || t.date || firstPaymentOn(t.repeatDay || 1);
   const start = parseKey(startKey);
   if (!start) return [];
+  const day = start.getDate();
+
+  if (t.horizonMonths) {
+    const horizon = Math.min(36, Math.max(1, Number(t.horizonMonths)));
+    const endKey = dateInMonth(start.getFullYear(), start.getMonth() + horizon, day);
+    const dates = [];
+    let y = start.getFullYear();
+    let m = start.getMonth();
+    for (let i = 0; i < 48; i += 1) {
+      const k = dateInMonth(y, m, day);
+      if (k >= endKey) break;
+      dates.push(k);
+      m += interval;
+      while (m > 11) { m -= 12; y += 1; }
+    }
+    return dates;
+  }
+
+  const months = Math.min(36, Math.max(1, Number(t.repeatMonths) || 12));
+  const payDay = Math.min(Math.max(1, Number(t.repeatDay) || day), 31);
   let offset = 0;
-  if (dateInMonth(start.getFullYear(), start.getMonth(), day) < toKey(start)) offset = 1;
+  if (dateInMonth(start.getFullYear(), start.getMonth(), payDay) < toKey(start)) offset = 1;
   const dates = [];
   for (let i = 0; i < months; i += 1) {
-    dates.push(dateInMonth(start.getFullYear(), start.getMonth() + offset + i, day));
+    dates.push(dateInMonth(start.getFullYear(), start.getMonth() + offset + i * interval, payDay));
   }
   return dates;
 }
@@ -114,5 +140,5 @@ export function calendarItems(transactions) {
 }
 
 export function seriesIdOf(t) {
-  return t.seriesId || t.id;
+  return String(t.seriesId || t.id || '').split('@')[0];
 }
