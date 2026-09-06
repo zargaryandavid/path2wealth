@@ -7,7 +7,10 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Path2Wealth uses your location only to auto-fill your city when you set up or edit your profile."
+      }
     },
     "android": {
       "adaptiveIcon": {
