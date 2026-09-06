@@ -1,5 +1,6 @@
 -- Monthly expenses for zargaryandavid@yahoo.com.
 -- Run once in Supabase → SQL Editor (bypasses RLS; looks up the user by email).
+-- Each bill is a 12-month series. Start date is a placeholder (1st of the month) — fix later.
 -- Does not store account passwords.
 
 alter table public.transactions
