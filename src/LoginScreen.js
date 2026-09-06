@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, TextInput, Alert, ActivityIndicator,
+  KeyboardAvoidingView, ScrollView, Platform, Keyboard,
 } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 import { COLORS } from './theme';
@@ -41,6 +42,14 @@ export default function LoginScreen({ onSignIn, onVerify, onResend, pendingEmail
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [mode, setMode] = useState('signin');
+  const [showPassword, setShowPassword] = useState(false);
+  const [kbOpen, setKbOpen] = useState(false);
+
+  React.useEffect(() => {
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKbOpen(true));
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKbOpen(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   const canSubmit = email.trim().length > 3 && password.length >= 6 && !busy;
   const canVerify = String(code).replace(/\s/g, '').length >= 6 && !busy;
@@ -52,11 +61,18 @@ export default function LoginScreen({ onSignIn, onVerify, onResend, pendingEmail
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" />
-
-      <View style={styles.top}>
-        <LogoMark />
-        <Text style={styles.title}>Path2Wealth</Text>
-        <Text style={styles.tagline}>Your money, beautifully simple.</Text>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+          showsVerticalScrollIndicator={false}
+        >
+      <View style={[styles.top, kbOpen && styles.topCompact]}>
+        {!kbOpen && <LogoMark />}
+        <Text style={[styles.title, kbOpen && { marginTop: 8 }]}>Path2Wealth</Text>
+        {!kbOpen && <Text style={styles.tagline}>Your money, beautifully simple.</Text>}
       </View>
 
       <View style={styles.bottom}>
@@ -109,19 +125,32 @@ export default function LoginScreen({ onSignIn, onVerify, onResend, pendingEmail
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
+              autoCorrect
+              spellCheck={false}
+              keyboardType="default"
+              textContentType="emailAddress"
+              autoComplete="email"
+              importantForAutofill="yes"
               placeholder="Email"
               placeholderTextColor={COLORS.textMuted}
             />
-            <TextInput
-              style={styles.input}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              placeholder="Password (6+ characters)"
-              placeholderTextColor={COLORS.textMuted}
-            />
+            <View style={styles.pwWrap}>
+              <TextInput
+                style={[styles.input, styles.pwInput]}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                keyboardType="default"
+                textContentType={mode === 'signup' ? 'newPassword' : 'password'}
+                autoComplete={mode === 'signup' ? 'new-password' : 'password'}
+                importantForAutofill="yes"
+                placeholder="Password (6+ characters)"
+                placeholderTextColor={COLORS.textMuted}
+              />
+              <TouchableOpacity style={styles.pwToggle} onPress={() => setShowPassword((v) => !v)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={styles.pwToggleText}>{showPassword ? 'Hide' : 'Show'}</Text>
+              </TouchableOpacity>
+            </View>
 
             {!!error && <Text style={styles.error}>{error}</Text>}
 
@@ -147,13 +176,17 @@ export default function LoginScreen({ onSignIn, onVerify, onResend, pendingEmail
           By continuing you agree to our Terms of Service and Privacy Policy.
         </Text>
       </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.card, justifyContent: 'space-between' },
-  top: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  safe: { flex: 1, backgroundColor: COLORS.card },
+  scroll: { flexGrow: 1, justifyContent: 'space-between' },
+  top: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 12 },
+  topCompact: { flexGrow: 0, paddingTop: 4, paddingBottom: 8 },
   title: { fontSize: 30, fontWeight: '800', color: COLORS.text, marginTop: 18 },
   tagline: { fontSize: 15, color: COLORS.textMuted, marginTop: 8 },
   bottom: { paddingHorizontal: 24, paddingBottom: 28 },
@@ -171,6 +204,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 14, paddingHorizontal: 14,
     paddingVertical: 14, fontSize: 16, color: COLORS.text, marginBottom: 10, backgroundColor: COLORS.background,
   },
+  pwWrap: { position: 'relative', marginBottom: 10 },
+  pwInput: { marginBottom: 0, paddingRight: 64 },
+  pwToggle: { position: 'absolute', right: 14, top: 0, bottom: 0, justifyContent: 'center' },
+  pwToggleText: { color: COLORS.header, fontSize: 14, fontWeight: '700' },
   error: { color: COLORS.expense, fontSize: 13, marginBottom: 10, textAlign: 'center' },
   emailBtn: { backgroundColor: COLORS.header, borderColor: COLORS.header },
   emailText: { color: '#FFFFFF', fontSize: 17, fontWeight: '600' },

@@ -13,27 +13,42 @@ import FireScreen from './src/FireScreen';
 import PortfolioScreen from './src/PortfolioScreen';
 import LoginScreen from './src/LoginScreen';
 import OnboardingScreen from './src/OnboardingScreen';
+import { CalendarScreen } from './src/CalendarScreen';
+import RecurringScreen from './src/RecurringScreen';
 import { COLORS, EXPENSE_CATEGORIES, categoryInfo, formatMoney } from './src/theme';
 import { CatIcon } from './src/Icons';
 import { supabase, isSupabaseConfigured } from './src/supabase';
 import { loadAll, saveProfile, syncTransactions } from './src/db';
+import { calendarItems, firstPaymentOn, postedOccurrences, seriesIdOf, todayKey } from './src/recurring';
 
-const now = () => new Date().toISOString();
+const today = todayKey();
 // Demo data only when there is no cloud backend configured.
 const SEED = isSupabaseConfigured ? [] : [
-  { id: '1', type: 'income',  amount: 3200, category: 'salary',    note: 'Monthly pay', recurring: true, repeatDay: 1, repeatMonths: 12, date: now() },
-  { id: '2', type: 'expense', amount: 42.5, category: 'food',      note: 'Groceries',   date: now() },
-  { id: '3', type: 'expense', amount: 60,   category: 'transport', note: 'Gas',         date: now() },
-  { id: '4', type: 'expense', amount: 120,  category: 'shopping',  note: 'Shoes',       date: now() },
-  { id: '5', type: 'expense', amount: 90,   category: 'bills',     note: 'Internet',    recurring: true, repeatDay: 1, repeatMonths: 12, date: now() },
+  { id: '1', type: 'income',  amount: 3200, category: 'salary',    note: 'Monthly pay', recurring: true, repeatDay: 1, repeatMonths: 12, occurredOn: firstPaymentOn(1), date: firstPaymentOn(1) },
+  { id: '2', type: 'expense', amount: 42.5, category: 'food',      note: 'Groceries',   date: today, occurredOn: today },
+  { id: '3', type: 'expense', amount: 60,   category: 'transport', note: 'Gas',         date: today, occurredOn: today },
+  { id: '4', type: 'expense', amount: 120,  category: 'shopping',  note: 'Shoes',       date: today, occurredOn: today },
+  { id: '5', type: 'expense', amount: 90,   category: 'bills',     note: 'Internet',    recurring: true, repeatDay: 1, repeatMonths: 12, occurredOn: firstPaymentOn(1), date: firstPaymentOn(1) },
 ];
 
 const ALLOC_BUCKETS = [
-  { key: 'essentials', label: 'Essentials', color: '#7C8CA3' },
+  { key: 'essentials', label: 'Spent', color: '#7C8CA3' },
   { key: 'savings', label: 'Savings', color: '#0EA47A' },
   { key: 'investments', label: 'Investments', color: '#4C8DFF' },
   { key: 'fun', label: 'Fun', color: '#F5A623' },
 ];
+
+// Whole-dollar formatter (no cents) for the suggested split.
+function moneyWhole(amount) {
+  const n = Math.round(Number(amount) || 0);
+  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US');
+}
+
+function txDayParts(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { day: '–', mon: '' };
+  return { day: String(d.getDate()), mon: d.toLocaleDateString(undefined, { month: 'short' }) };
+}
 
 // A transaction row. Real entries swipe to edit/delete; bond coupons are read-only.
 function SwipeableTxRow({ t, onEdit, onDelete }) {
@@ -41,8 +56,13 @@ function SwipeableTxRow({ t, onEdit, onDelete }) {
   const info = categoryInfo(t.type, t.category);
   const isIncome = t.type === 'income';
   const close = () => ref.current && ref.current.close();
+  const day = txDayParts(t.date);
   const rowInner = (
     <View style={styles.txRow}>
+      <View style={styles.txDay}>
+        <Text style={styles.txDayNum}>{day.day}</Text>
+        <Text style={styles.txDayMon}>{day.mon}</Text>
+      </View>
       <View style={[styles.txIcon, { backgroundColor: info.color + '22' }]}>
         <CatIcon name={info.icon} color={info.color} size={20} />
       </View>
@@ -64,6 +84,7 @@ function SwipeableTxRow({ t, onEdit, onDelete }) {
     </View>
   );
   if (t.bondId) return rowInner; // bond coupons are auto-generated, not editable
+  if (t.recurring) return rowInner; // edit/delete repeating items on the Repeating screen
   return (
     <Swipeable
       ref={ref}
@@ -99,6 +120,7 @@ export default function App() {
   const [tool, setTool] = useState(null);
   const [planOpen, setPlanOpen] = useState(true);
   const [recentOpen, setRecentOpen] = useState(true);
+  const [splitOpen, setSplitOpen] = useState(true);
   const [alloc, setAlloc] = useState({ essentials: 50, savings: 20, investments: 15, fun: 15 });
   const [savingsAccounts, setSavingsAccounts] = useState([
     { id: 's1', name: 'Emergency Fund', balance: 5000 },
@@ -169,27 +191,40 @@ export default function App() {
   // Bond coupons are derived from the portfolio (never stored).
   const bondTx = useMemo(() => portfolio.filter((h) => h.kind === 'Bond' && h.yield).map((h) => {
     const perMonth = ((h.qty * h.price) * (h.yield || 0) / 100) / 12;
+    const start = firstPaymentOn(1);
     return { id: 'bond-' + h.id, bondId: h.id, type: 'income', amount: Math.round(perMonth * 100) / 100,
-      category: 'dividends', note: h.name + ' coupon (per month)', recurring: true, repeatDay: 1, repeatMonths: 12, date: now() };
+      category: 'dividends', note: h.name + ' coupon (per month)', recurring: true, repeatDay: 1, repeatMonths: 12,
+      occurredOn: start, date: start };
   }), [portfolio]);
 
   const allTx = useMemo(() => [...bondTx, ...transactions], [bondTx, transactions]);
+  const postedTx = useMemo(() => postedOccurrences(allTx), [allTx]);
+  const calTx = useMemo(() => calendarItems(allTx), [allTx]);
 
   const totals = useMemo(() => {
     let income = 0, expense = 0;
-    for (const t of allTx) { if (t.type === 'income') income += t.amount; else expense += t.amount; }
+    for (const t of postedTx) { if (t.type === 'income') income += t.amount; else expense += t.amount; }
     return { income, expense, balance: income - expense };
-  }, [allTx]);
+  }, [postedTx]);
 
   const donutData = useMemo(() => {
     const byCat = {};
-    for (const t of allTx) { if (t.type !== 'expense') continue; byCat[t.category] = (byCat[t.category] || 0) + t.amount; }
+    for (const t of postedTx) { if (t.type !== 'expense') continue; byCat[t.category] = (byCat[t.category] || 0) + t.amount; }
     return EXPENSE_CATEGORIES.filter((c) => byCat[c.key]).map((c) => ({ key: c.key, label: c.label, value: byCat[c.key], color: c.color, icon: c.icon }));
-  }, [allTx]);
+  }, [postedTx]);
 
   function openModal(type) { setEditEntry(null); setModalType(type); setModalVisible(true); }
-  function editTx(t) { setEditEntry(t); setModalType(t.type); setModalVisible(true); }
-  function deleteTx(id) { setTransactions((prev) => prev.filter((x) => x.id !== id)); }
+  function editTx(t) {
+    const id = seriesIdOf(t);
+    const src = transactions.find((x) => x.id === id) || t;
+    setEditEntry(src);
+    setModalType(src.type);
+    setModalVisible(true);
+  }
+  function deleteTx(id) {
+    const realId = String(id).split('@')[0];
+    setTransactions((prev) => prev.filter((x) => x.id !== realId && x.id !== id));
+  }
   function handleSave(entry) {
     setTransactions((prev) => prev.some((x) => x.id === entry.id) ? prev.map((x) => (x.id === entry.id ? entry : x)) : [entry, ...prev]);
     setSelectedKey(null); setModalVisible(false); setEditEntry(null);
@@ -215,7 +250,7 @@ export default function App() {
   if (cloud && !loaded) return <View style={{ flex: 1, backgroundColor: COLORS.card }} />;
   if (!profile) return <OnboardingScreen onComplete={(answers) => setProfile(answers)} />;
 
-  const recent = allTx.slice(0, 8);
+  const recent = postedTx.slice(0, 8);
   const profileIncome = parseFloat(String((profile && profile.income) || '').replace(/[^0-9.]/g, '')) || 0;
   const savingsTotal = savingsAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
   const portfolioTotal = portfolio.reduce((sum, h) => sum + (h.qty * h.price || 0), 0);
@@ -226,39 +261,49 @@ export default function App() {
   [['Stock', 'Stocks'], ['Metal', 'Precious metals'], ['Paper', 'Precious paper'], ['Bond', 'Bonds']].forEach(([k, l]) => { if (byKind[k]) fireSources.push({ label: l, amount: byKind[k] }); });
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaView style={styles.safe}>
-        <StatusBar barStyle="light-content" />
-
+    <GestureHandlerRootView style={styles.root}>
+      <StatusBar barStyle="light-content" />
+      <SafeAreaView style={styles.headerSafe}>
         <View style={styles.header}>
           <View style={styles.headerTop}>
-            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setCalendarOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open calendar">
-              <CatIcon name="calendar-month" size={28} color="#FFFFFF" />
-            </TouchableOpacity>
             <Text style={styles.appName}>Path2Wealth</Text>
             <TouchableOpacity style={styles.headerIconBtn} onPress={() => setProfileOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open profile">
               <CatIcon name="account-circle" size={30} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
           <Text style={styles.balanceLabel}>Balance</Text>
-          <Text style={styles.balanceValue}>{formatMoney(totals.balance)}</Text>
+          <Text style={styles.balanceValue}>{moneyWhole(totals.balance)}</Text>
           <View style={styles.headerTotals}>
             <View style={styles.headerTotalItem}>
               <Text style={styles.headerTotalLabel}>Income</Text>
               <Text style={styles.headerIncome}>{formatMoney(totals.income)}</Text>
             </View>
             <View style={styles.headerDivider} />
-            <View style={styles.headerTotalItem}>
-              <Text style={styles.headerTotalLabel}>Expenses</Text>
-              <Text style={styles.headerExpense}>{formatMoney(totals.expense)}</Text>
+            <View style={styles.headerExpenseCol}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.headerTotalLabel}>Expenses</Text>
+                <Text style={styles.headerExpense}>{formatMoney(totals.expense)}</Text>
+              </View>
+              <TouchableOpacity style={styles.headerIconBtn} onPress={() => setCalendarOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open calendar">
+                <CatIcon name="calendar-month" size={26} color="#FFFFFF" />
+              </TouchableOpacity>
             </View>
           </View>
         </View>
+      </SafeAreaView>
 
+      <View style={styles.bodyWrap}>
         <ScrollView style={styles.scroll} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           <View style={styles.chartCard}>
+            <View style={styles.chartTitleRow}>
+              <Text style={styles.chartTitle}>Monthly expenses</Text>
+              <TouchableOpacity onPress={() => setSplitOpen(!splitOpen)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <CatIcon name={splitOpen ? 'eye-outline' : 'eye-off-outline'} size={22} color={COLORS.textMuted} />
+              </TouchableOpacity>
+            </View>
             <View style={styles.chartTop}>
               <DonutChart data={donutData} selectedKey={selectedKey} onSelectSlice={setSelectedKey} centerTitle="Spent" size={150} strokeWidth={26} />
+              {splitOpen && (
               <View style={styles.allocSummary}>
                 <Text style={styles.allocSummaryTitle}>Suggested split</Text>
                 {ALLOC_BUCKETS.map((b) => (
@@ -266,15 +311,12 @@ export default function App() {
                     <View style={[styles.allocSumDot, { backgroundColor: b.color }]} />
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.allocSumLabel}>{b.label}</Text>
-                      <Text style={styles.allocSumAmt}>{formatMoney(profileIncome * (alloc[b.key] || 0) / 100)}</Text>
+                      <Text style={styles.allocSumAmt}>{moneyWhole(profileIncome * (alloc[b.key] || 0) / 100)}</Text>
                     </View>
                   </View>
                 ))}
-                <View style={styles.allocExpRow}>
-                  <Text style={styles.allocExpLabel}>Expenses</Text>
-                  <Text style={styles.allocExpAmt}>{formatMoney(profileIncome * ((alloc.essentials || 0) + (alloc.fun || 0)) / 100)}</Text>
-                </View>
               </View>
+              )}
             </View>
             <View style={styles.legend}>
               {donutData.length === 0 && (
@@ -316,9 +358,14 @@ export default function App() {
               <View style={{ flex: 1 }}><Text style={styles.toolTitle}>Portfolio</Text><Text style={styles.toolSub}>Stocks, precious metals, paper & bonds</Text></View>
               <CatIcon name="chevron-right" size={22} color={COLORS.textMuted} />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.toolRow, { borderBottomWidth: 0 }]} onPress={() => setTool('fire')}>
+            <TouchableOpacity style={styles.toolRow} onPress={() => setTool('fire')}>
               <View style={[styles.toolIcon, { backgroundColor: '#EA433518' }]}><CatIcon name="fire" size={22} color="#EA4335" /></View>
               <View style={{ flex: 1 }}><Text style={styles.toolTitle}>FIRE forecast</Text><Text style={styles.toolSub}>See when you could retire</Text></View>
+              <CatIcon name="chevron-right" size={22} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.toolRow, { borderBottomWidth: 0 }]} onPress={() => setTool('recurring')}>
+              <View style={[styles.toolIcon, { backgroundColor: '#0EA47A18' }]}><CatIcon name="autorenew" size={22} color={COLORS.header} /></View>
+              <View style={{ flex: 1 }}><Text style={styles.toolTitle}>Repeating</Text><Text style={styles.toolSub}>Edit or delete monthly income & expenses</Text></View>
               <CatIcon name="chevron-right" size={22} color={COLORS.textMuted} />
             </TouchableOpacity>
           </View>
@@ -358,7 +405,7 @@ export default function App() {
           onSave={handleSave}
         />
 
-        <CalendarScreen visible={calendarOpen} transactions={transactions} onClose={() => setCalendarOpen(false)} />
+        <CalendarScreen visible={calendarOpen} transactions={calTx} onClose={() => setCalendarOpen(false)} />
         <ProfileScreen
           visible={profileOpen}
           profile={profile}
@@ -371,13 +418,22 @@ export default function App() {
         <SavingsScreen visible={tool === 'savings'} accounts={savingsAccounts} setAccounts={setSavingsAccounts} onClose={() => setTool(null)} />
         <PortfolioScreen visible={tool === 'portfolio'} holdings={portfolio} setHoldings={setPortfolio} onClose={() => setTool(null)} />
         <FireScreen visible={tool === 'fire'} currentSavings={savingsTotal + portfolioTotal} monthlyContribution={Math.round(profileIncome * 0.35)} annualExpensesGuess={Math.round(profileIncome * 12 * 0.6)} sources={fireSources} onClose={() => setTool(null)} />
-      </SafeAreaView>
+        <RecurringScreen
+          visible={tool === 'recurring'}
+          items={transactions.filter((t) => t.recurring && !t.bondId)}
+          onClose={() => setTool(null)}
+          onEdit={(item) => { setTool(null); editTx(item); }}
+          onRemove={(id) => deleteTx(id)}
+        />
+      </View>
     </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.header },
+  root: { flex: 1, backgroundColor: COLORS.background },
+  headerSafe: { backgroundColor: COLORS.header },
+  bodyWrap: { flex: 1, backgroundColor: COLORS.background },
   header: {
     backgroundColor: COLORS.header, paddingHorizontal: 22, paddingBottom: 22,
     paddingTop: Platform.OS === 'android' ? 18 : 6,
@@ -385,15 +441,16 @@ const styles = StyleSheet.create({
   },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   headerIconBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  appName: { color: 'rgba(255,255,255,0.9)', fontSize: 15, fontWeight: '700', flex: 1, textAlign: 'center' },
+  appName: { color: 'rgba(255,255,255,0.9)', fontSize: 15, fontWeight: '700' },
   balanceLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 13 },
   balanceValue: { color: '#FFFFFF', fontSize: 40, fontWeight: '800', marginTop: 2 },
   headerTotals: { flexDirection: 'row', marginTop: 16, alignItems: 'center' },
   headerTotalItem: { flex: 1 },
-  headerDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.25)' },
+  headerDivider: { width: 1.5, height: 42, backgroundColor: 'rgba(255,255,255,0.55)', marginHorizontal: 16 },
+  headerExpenseCol: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingLeft: 4 },
   headerTotalLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginBottom: 2 },
   headerIncome: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  headerExpense: { color: '#FFFFFF', fontSize: 17, fontWeight: '700', paddingLeft: 14 },
+  headerExpense: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   scroll: { flex: 1, backgroundColor: COLORS.background },
   body: { padding: 16 },
   chartCard: {
@@ -401,7 +458,9 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   chartTop: { flexDirection: 'row', alignItems: 'center', width: '100%' },
-  allocSummary: { flex: 1, paddingLeft: 10 },
+  allocSummary: { flex: 1, paddingLeft: 22 },
+  chartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 14 },
+  chartTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
   allocSummaryTitle: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 8 },
   allocSumRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 },
   allocSumDot: { width: 9, height: 9, borderRadius: 5, marginRight: 8 },
@@ -427,6 +486,9 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   txRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, backgroundColor: COLORS.card, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
+  txDay: { width: 34, alignItems: 'center', marginRight: 8 },
+  txDayNum: { fontSize: 15, fontWeight: '800', color: COLORS.header, lineHeight: 18 },
+  txDayMon: { fontSize: 10, fontWeight: '700', color: COLORS.textMuted, textTransform: 'uppercase' },
   txIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   txLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   txLabel: { fontSize: 15, fontWeight: '600', color: COLORS.text },
@@ -437,7 +499,7 @@ const styles = StyleSheet.create({
   swipeActions: { flexDirection: 'row', alignItems: 'stretch' },
   swipeBtn: { width: 72, alignItems: 'center', justifyContent: 'center', gap: 3 },
   swipeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  fabBar: { position: 'absolute', bottom: 26, alignSelf: 'center', flexDirection: 'row', gap: 22 },
+  fabBar: { position: 'absolute', bottom: 26, alignSelf: 'center', flexDirection: 'row', gap: 24 },
   fab: {
     width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 6,

@@ -3,16 +3,22 @@
 import { supabase } from './supabase';
 
 // bond coupons are derived from your portfolio, so we never store them.
+const paymentDate = (t) => t.occurredOn || (t.date && String(t.date).slice(0, 10)) || null;
+
 const toDbTx = (uid, t) => ({
   user_id: uid, type: t.type, amount: t.amount, category: t.category,
   note: t.note || null, recurring: !!t.recurring,
   repeat_day: t.repeatDay ?? null, repeat_months: t.repeatMonths ?? null,
+  occurred_on: paymentDate(t),
 });
-const fromDbTx = (r) => ({
-  id: r.id, type: r.type, amount: Number(r.amount), category: r.category,
-  note: r.note || '', recurring: !!r.recurring, repeatDay: r.repeat_day,
-  repeatMonths: r.repeat_months, date: r.created_at,
-});
+const fromDbTx = (r) => {
+  const occurredOn = r.occurred_on || (r.created_at && String(r.created_at).slice(0, 10)) || null;
+  return {
+    id: r.id, type: r.type, amount: Number(r.amount), category: r.category,
+    note: r.note || '', recurring: !!r.recurring, repeatDay: r.repeat_day,
+    repeatMonths: r.repeat_months, occurredOn, date: occurredOn,
+  };
+};
 
 export async function loadAll(uid) {
   const prof = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();

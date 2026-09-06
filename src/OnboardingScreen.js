@@ -73,12 +73,12 @@ export default function OnboardingScreen({ onComplete }) {
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
           <Text style={styles.stepCount}>Question {index + 1} of {STEPS.length}</Text>
           <Text style={styles.question}>{step.question}</Text>
           {!!step.subtitle && <Text style={styles.subtitle}>{step.subtitle}</Text>}
 
-          <View style={{ marginTop: 24 }}>
+          <View style={[{ marginTop: 24 }, step.type === 'wheel' && { flex: 1 }]}>
             {step.type === 'chips' &&
               step.options.map((o) => {
                 const opt = typeof o === 'string' ? { label: o } : o;
@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
   progressTrack: { flex: 1, flexDirection: 'row', gap: 6 },
   progressSeg: { flex: 1, height: 5, borderRadius: 3, backgroundColor: COLORS.border },
   progressSegActive: { backgroundColor: COLORS.header },
-  content: { paddingHorizontal: 26, paddingTop: 30 },
+  content: { flexGrow: 1, paddingHorizontal: 26, paddingTop: 30, paddingBottom: 8 },
   stepCount: { fontSize: 13, color: COLORS.header, fontWeight: '700', marginBottom: 12 },
   question: { fontSize: 27, fontWeight: '800', color: COLORS.text, lineHeight: 34 },
   subtitle: { fontSize: 15, color: COLORS.textMuted, marginTop: 10, lineHeight: 21 },
@@ -177,10 +177,11 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 16, color: COLORS.text, fontWeight: '600' },
   chipTextActive: { color: COLORS.header },
   wheelWrap: {
-    marginTop: 6, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 16,
+    marginTop: 6, flex: 1, minHeight: 300, justifyContent: 'center',
+    borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 16,
     backgroundColor: COLORS.card, overflow: 'hidden',
   },
-  wheelItem: { fontSize: 22, color: COLORS.text, fontWeight: '600', height: 200 },
+  wheelItem: { fontSize: 22, color: COLORS.text, fontWeight: '600' },
   input: {
     borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 14,
     paddingVertical: 16, paddingHorizontal: 16, fontSize: 18, color: COLORS.text,

@@ -70,7 +70,7 @@ export default function ProfileScreen({ visible, profile, onClose, onSave, onLog
           <TouchableOpacity onPress={() => onSave(p)} style={styles.headBtn}><Text style={styles.save}>Save</Text></TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
           <SelectField label="Age" value={p.age} options={AGE} onChange={(v) => set('age', v)} />
           <SelectField label="Gender" value={p.gender} options={GENDER} onChange={(v) => set('gender', v)} />
 

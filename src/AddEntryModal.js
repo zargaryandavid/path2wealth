@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { COLORS, EXPENSE_CATEGORIES, INCOME_CATEGORIES, formatMoney, groupDigits, ordinal } from './theme';
 import { CatIcon } from './Icons';
+import { addDays, firstPaymentOn, formatKey, todayKey } from './recurring';
 
 // Simple stepper: −  value  +
 function Stepper({ label, value, onDec, onInc }) {
@@ -22,7 +23,8 @@ function Stepper({ label, value, onDec, onInc }) {
 
 // The pop-up sheet for adding money in (+) or out (-).
 // Everyday flow is just amount + category. Recurring is tucked behind the Repeat button.
-export default function AddEntryModal({ visible, initialType = 'expense', initialEntry = null, onClose, onSave }) {
+export default function AddEntryModal({ visible, initialType = 'expense', initialEntry = null, editEntry = null, onClose, onSave }) {
+  const source = editEntry || initialEntry;
   const [type, setType] = useState(initialType);
   const [amount, setAmount] = useState('');
   const [categoryKey, setCategoryKey] = useState(null);
@@ -30,20 +32,22 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
   const [recurring, setRecurring] = useState(false);
   const [repeatDay, setRepeatDay] = useState(new Date().getDate());
   const [repeatMonths, setRepeatMonths] = useState(12);
+  const [occurredOn, setOccurredOn] = useState(todayKey());
 
   const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-  const editing = !!initialEntry;
+  const editing = !!source;
 
   useEffect(() => {
     if (!visible) return;
-    if (initialEntry) {
-      setType(initialEntry.type);
-      setAmount(String(initialEntry.amount ?? ''));
-      setCategoryKey(initialEntry.category || null);
-      setNote(initialEntry.note || '');
-      setRecurring(!!initialEntry.recurring);
-      setRepeatDay(initialEntry.repeatDay || new Date().getDate());
-      setRepeatMonths(initialEntry.repeatMonths || 12);
+    if (source) {
+      setType(source.type);
+      setAmount(String(source.amount ?? ''));
+      setCategoryKey(source.category || null);
+      setNote(source.note || '');
+      setRecurring(!!source.recurring);
+      setRepeatDay(source.repeatDay || new Date().getDate());
+      setRepeatMonths(source.repeatMonths || 12);
+      setOccurredOn(source.occurredOn || String(source.date || '').slice(0, 10) || todayKey());
     } else {
       setType(initialType);
       setAmount('');
@@ -52,8 +56,9 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
       setRecurring(false);
       setRepeatDay(new Date().getDate());
       setRepeatMonths(12);
+      setOccurredOn(todayKey());
     }
-  }, [visible, initialType, initialEntry]);
+  }, [visible, initialType, source]);
 
   const numericAmount = parseFloat(amount) || 0;
   const canSave = numericAmount > 0 && !!categoryKey;
@@ -61,16 +66,23 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
 
   function handleSave() {
     if (!canSave) return;
+    const dayUnchanged = editing && source.recurring && Number(source.repeatDay) === Number(repeatDay);
+    const payment = recurring
+      ? (dayUnchanged && (source.occurredOn || source.date)
+        ? (source.occurredOn || String(source.date).slice(0, 10))
+        : firstPaymentOn(repeatDay))
+      : occurredOn;
     onSave({
-      id: initialEntry?.id || Date.now().toString(),
+      id: source?.seriesId || source?.id || Date.now().toString(),
       type,
       amount: numericAmount,
       category: categoryKey,
       note: note.trim(),
       recurring,
-      repeatDay,
-      repeatMonths,
-      date: initialEntry?.date || new Date().toISOString(),
+      repeatDay: recurring ? repeatDay : null,
+      repeatMonths: recurring ? repeatMonths : null,
+      occurredOn: payment,
+      date: payment,
     });
   }
 
@@ -102,7 +114,7 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
           <View style={styles.amountRow}>
             <Text style={[styles.amountCurrency, { color: accent }]}>$</Text>
             <TextInput
-              style={[styles.amountInput, { color: accent }]}
+              style={[styles.amountInput, { color: accent, fontSize: groupDigits(amount).length > 9 ? 30 : groupDigits(amount).length > 6 ? 36 : 44 }]}
               value={groupDigits(amount)}
               onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ''))}
               placeholder="0"
@@ -132,6 +144,13 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
 
           {/* Repeat — only appears once a category is chosen */}
           {!!categoryKey && (<>
+          {!recurring && (
+            <View style={styles.repPanel}>
+              <Stepper label="Date" value={formatKey(occurredOn)}
+                onDec={() => setOccurredOn((d) => addDays(d, -1))}
+                onInc={() => setOccurredOn((d) => addDays(d, 1))} />
+            </View>
+          )}
           <TouchableOpacity
             style={[styles.repToggle, recurring && { borderColor: COLORS.header, backgroundColor: '#0EA47A14' }]}
             onPress={() => setRecurring((r) => !r)}
@@ -195,9 +214,9 @@ const styles = StyleSheet.create({
   toggleBtn: { flex: 1, paddingVertical: 11, borderRadius: 11, alignItems: 'center' },
   toggleText: { fontSize: 15, fontWeight: '600', color: COLORS.textMuted },
   toggleTextActive: { color: '#FFFFFF' },
-  amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 6, paddingHorizontal: 8 },
   amountCurrency: { fontSize: 32, fontWeight: '700', marginRight: 4 },
-  amountInput: { fontSize: 44, fontWeight: '700', minWidth: 100, textAlign: 'center', padding: 0 },
+  amountInput: { fontSize: 44, fontWeight: '700', minWidth: 100, flexShrink: 1, textAlign: 'center', padding: 0 },
   sectionLabel: { fontSize: 12, color: COLORS.textMuted, marginBottom: 10, marginTop: 8, fontWeight: '700', letterSpacing: 0.5 },
   catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
   catItem: {
@@ -216,7 +235,7 @@ const styles = StyleSheet.create({
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   stepBtn: { width: 34, height: 34, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center' },
   stepSign: { fontSize: 20, fontWeight: '700', color: COLORS.text, marginTop: -2 },
-  stepValue: { minWidth: 60, textAlign: 'center', fontSize: 15, fontWeight: '700', color: COLORS.text },
+  stepValue: { minWidth: 92, textAlign: 'center', fontSize: 15, fontWeight: '700', color: COLORS.text },
   repHelp: { fontSize: 12, color: COLORS.textMuted, marginTop: 2, marginBottom: 6, lineHeight: 17 },
   note: {
     backgroundColor: COLORS.background, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,

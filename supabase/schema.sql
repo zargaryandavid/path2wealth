@@ -28,6 +28,7 @@ create table if not exists public.transactions (
   recurring      boolean default false,
   repeat_day     int,
   repeat_months  int,
+  occurred_on    date,
   created_at     timestamptz default now()
 );
 alter table public.transactions enable row level security;

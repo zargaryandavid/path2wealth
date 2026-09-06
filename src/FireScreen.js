@@ -85,7 +85,7 @@ export default function FireScreen({ visible, currentSavings = 0, monthlyContrib
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle="dark-content" />
         <ScreenHeader title="FIRE forecast" onClose={onClose} />
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
           <View style={styles.hero}>
             <Text style={styles.heroLabel}>YOU CAN RETIRE IN</Text>
             <Text style={styles.heroValue}>{yLabel}</Text>

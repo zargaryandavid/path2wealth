@@ -55,7 +55,7 @@ export default function SavingsScreen({ visible, accounts = [], setAccounts, pro
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle="dark-content" />
         <ScreenHeader title="Savings" onClose={onClose} />
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
           <View style={styles.totalCard}>
             <Text style={styles.totalLabel}>TOTAL SAVED</Text>
             <Text style={styles.totalValue}>{formatMoney(total)}</Text>

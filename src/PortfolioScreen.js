@@ -151,7 +151,7 @@ export default function PortfolioScreen({ visible, holdings = [], setHoldings, o
         <SafeAreaView style={styles.safe}>
           <StatusBar barStyle="dark-content" />
           <ScreenHeader title="Portfolio" onClose={onClose} />
-          <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
             <View style={styles.totalCard}>
               <Text style={styles.totalLabel}>PORTFOLIO VALUE</Text>
               <Text style={styles.totalValue}>{formatMoney(total)}</Text>
@@ -207,7 +207,7 @@ export default function PortfolioScreen({ visible, holdings = [], setHoldings, o
                     <View style={{ flex: 1 }} />
                   </View>
                   <Text style={styles.bondLbl}>Payment cycle</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollChips} keyboardShouldPersistTaps="handled">
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollChips} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
                     {CYCLES.map((c) => (
                       <TouchableOpacity key={c} style={[styles.scrollChip, cycle === c && { backgroundColor: '#2CC9B5', borderColor: '#2CC9B5' }]} onPress={() => setCycle(c)}>
                         <Text style={[styles.scrollChipText, cycle === c && { color: '#FFFFFF' }]}>{c}</Text>
@@ -215,7 +215,7 @@ export default function PortfolioScreen({ visible, holdings = [], setHoldings, o
                     ))}
                   </ScrollView>
                   <Text style={styles.bondLbl}>Currency</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollChips} keyboardShouldPersistTaps="handled">
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollChips} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
                     {CURRENCIES.map((c) => (
                       <TouchableOpacity key={c.code} style={[styles.scrollChip, currency === c.code && { backgroundColor: '#4C8DFF', borderColor: '#4C8DFF' }]} onPress={() => setCurrency(c.code)}>
                         <Text style={[styles.scrollChipText, currency === c.code && { color: '#FFFFFF' }]}>{c.sym} {c.code}</Text>

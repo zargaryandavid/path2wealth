@@ -23,7 +23,7 @@ export default function AllocationScreen({ visible, income = 0, alloc = {}, setA
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle="dark-content" />
         <ScreenHeader title="Smart Allocation" onClose={onClose} />
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
           <Text style={styles.lbl}>YOUR MONTHLY INCOME</Text>
           <View style={styles.incomeRow}>
             <Text style={styles.cur}>$</Text>
