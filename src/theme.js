@@ -33,6 +33,7 @@ export const INCOME_CATEGORIES = [
   { key: 'dividends', label: 'Dividends',   icon: 'chart-line',      color: '#2CC9B5' },
   { key: 'cd',        label: 'CD Interest', icon: 'percent',         color: '#4C8DFF' },
   { key: 'hysa',      label: 'HYSA',        icon: 'piggy-bank',      color: '#F5A623' },
+  { key: 'bond',      label: 'Bond',        icon: 'note-text',       color: '#2CC9B5' },
   { key: 'bonus',     label: 'Bonus',       icon: 'gift',            color: '#B15CFF' },
   { key: 'freelance', label: 'Freelance',   icon: 'laptop',          color: '#FF7AC6' },
   { key: 'other',     label: 'Other',       icon: 'plus',            color: '#8FD0B0' },

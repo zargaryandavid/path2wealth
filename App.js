@@ -200,7 +200,7 @@ export default function App() {
     const perMonth = ((h.qty * h.price) * (h.yield || 0) / 100) / 12;
     const start = firstPaymentOn(1);
     return { id: 'bond-' + h.id, bondId: h.id, type: 'income', amount: Math.round(perMonth * 100) / 100,
-      category: 'dividends', note: h.name + ' coupon (per month)', recurring: true, repeatDay: 1, repeatMonths: 12,
+      category: 'bond', note: h.name + ' coupon (per month)', recurring: true, repeatDay: 1, repeatMonths: 12,
       occurredOn: start, date: start };
   }), [portfolio]);
 
@@ -233,6 +233,15 @@ export default function App() {
     setTransactions((prev) => prev.filter((x) => x.id !== realId && x.id !== id));
   }
   function handleSave(entry) {
+    // A bond entered from the income screen becomes a Portfolio asset (single source of truth);
+    // its monthly income is derived automatically, so we don't also store a transaction.
+    if (entry && entry.__asset === 'bond') {
+      const h = { id: Date.now().toString(), kind: 'Bond', name: entry.name || 'Bond',
+        qty: 1, price: entry.value || 0, yield: entry.yield || 0, cycle: entry.cycle || 'Yearly', currency: entry.currency || 'USD' };
+      setPortfolio((prev) => [...prev, h]);
+      setSelectedKey(null); setModalVisible(false); setEditEntry(null);
+      return;
+    }
     setTransactions((prev) => prev.some((x) => x.id === entry.id) ? prev.map((x) => (x.id === entry.id ? entry : x)) : [entry, ...prev]);
     setSelectedKey(null); setModalVisible(false); setEditEntry(null);
   }
