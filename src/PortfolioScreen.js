@@ -171,7 +171,7 @@ function MiniPie({ title, data }) {
   let acc = 0;
   return (
     <View style={styles.miniPieCard}>
-      <Text style={styles.miniPieTitle} numberOfLines={1}>{title}</Text>
+      <Text style={styles.miniPieTitle}>{title}</Text>
       <View style={styles.miniPieBody}>
         <Svg width={size} height={size}>
           <G rotation={-90} originX={c} originY={c}>
@@ -183,18 +183,20 @@ function MiniPie({ title, data }) {
             })}
           </G>
         </Svg>
-        <ScrollView style={styles.miniLegend} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-          {data.map((d) => (
-            <View key={d.key} style={styles.pieRow}>
-              <View style={[styles.pieDot, { backgroundColor: d.color, marginTop: 3 }]} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.miniLabel} numberOfLines={1}>{d.label}</Text>
-                <Text style={styles.miniAmt} numberOfLines={1}>{d.amountLabel || formatMoney(d.value)}</Text>
+      </View>
+      <View style={styles.miniLegend}>
+        {data.map((d) => (
+          <View key={d.key} style={styles.pieRow}>
+            <View style={[styles.pieDot, { backgroundColor: d.color }]} />
+            <View style={styles.pieInfo}>
+              <View style={styles.pieNameRow}>
+                <Text style={styles.miniLabel}>{d.label}</Text>
+                <Text style={styles.miniPct}>{piePct(d.value, total)}</Text>
               </View>
-              <Text style={styles.miniPct}>{piePct(d.value, total)}</Text>
+              <Text style={styles.miniAmt}>{d.amountLabel || formatMoney(d.value)}</Text>
             </View>
-          ))}
-        </ScrollView>
+          </View>
+        ))}
       </View>
     </View>
   );
@@ -550,17 +552,19 @@ const styles = StyleSheet.create({
   totalValue: { color: '#FFFFFF', fontSize: 36, fontWeight: '800', marginTop: 4 },
   totalSub: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginTop: 2 },
   section: { fontSize: 12, fontWeight: '700', letterSpacing: 0.4, color: COLORS.textMuted, marginTop: 22, marginBottom: 10 },
-  pieGrid: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  pieGrid: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
   pieCell: { flex: 1, minWidth: 0 },
-  miniPieCard: { backgroundColor: COLORS.background, borderRadius: 16, padding: 10, minHeight: 168 },
+  miniPieCard: { backgroundColor: COLORS.background, borderRadius: 16, padding: 12 },
   miniPieTitle: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted, marginBottom: 8, letterSpacing: 0.2 },
-  miniPieBody: { flexDirection: 'row', alignItems: 'flex-start' },
-  miniLegend: { flex: 1, maxHeight: 110, marginLeft: 8 },
-  miniLabel: { fontSize: 11, fontWeight: '700', color: COLORS.text },
-  miniAmt: { fontSize: 10.5, color: COLORS.textMuted, marginTop: 1 },
-  miniPct: { fontSize: 12, fontWeight: '800', color: COLORS.text, marginLeft: 4 },
-  pieRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 7 },
-  pieDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
+  miniPieBody: { alignItems: 'center', marginBottom: 10 },
+  miniLegend: { width: '100%' },
+  miniLabel: { flex: 1, fontSize: 12, fontWeight: '700', color: COLORS.text },
+  miniAmt: { fontSize: 11, color: COLORS.textMuted, marginTop: 1 },
+  miniPct: { fontSize: 12, fontWeight: '800', color: COLORS.text, marginLeft: 6 },
+  pieRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
+  pieDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6, marginTop: 4, flexShrink: 0 },
+  pieInfo: { flex: 1, minWidth: 0 },
+  pieNameRow: { flexDirection: 'row', alignItems: 'flex-start' },
   filterRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
   filterChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.background },
   filterChipText: { fontSize: 12.5, fontWeight: '700', color: COLORS.textMuted },

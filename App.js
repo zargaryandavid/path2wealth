@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, Platform,
+  View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, Platform, Switch,
 } from 'react-native';
 import { GestureHandlerRootView, Swipeable, ScrollView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -164,6 +164,7 @@ export default function App() {
   const [recentOpen, setRecentOpen] = useState(true);
   const [splitOpen, setSplitOpen] = useState(true);
   const [expenseMonth, setExpenseMonth] = useState(today.slice(0, 7));
+  const [expenseView, setExpenseView] = useState('planned'); // planned = full month, spent = posted so far
   const [alloc, setAlloc] = useState({ essentials: 50, savings: 20, investments: 15, fun: 15 });
   const [savingsAccounts, setSavingsAccounts] = useState([
     { id: 's1', name: 'Emergency Fund', balance: 5000 },
@@ -344,19 +345,32 @@ export default function App() {
     return rows;
   }, [transactions, expenseMonth]);
 
+  const donutRows = useMemo(() => {
+    const todayK = todayKey();
+    return monthExpenseRows.filter((t) => {
+      if (expenseView !== 'spent') return true;
+      if (t.recurring) {
+        return expandSeries(t).some((d) => String(d).startsWith(expenseMonth) && d <= todayK);
+      }
+      const d = String(t.occurredOn || t.date || '');
+      return d <= todayK;
+    });
+  }, [monthExpenseRows, expenseView, expenseMonth]);
+
   const donutData = useMemo(() => {
     const byCat = {};
-    for (const t of monthExpenseRows) {
+    for (const t of donutRows) {
       const usd = amountUsd(t.amount, t.currency);
       byCat[t.category] = (byCat[t.category] || 0) + usd;
     }
     return EXPENSE_CATEGORIES.filter((c) => byCat[c.key]).map((c) => ({
       key: c.key, label: c.label, value: byCat[c.key], color: c.color, icon: c.icon,
     }));
-  }, [monthExpenseRows]);
+  }, [donutRows]);
   const monthDonutTotal = donutData.reduce((s, d) => s + d.value, 0);
+  const monthPlannedTotal = monthExpenseRows.reduce((s, t) => s + amountUsd(t.amount, t.currency), 0);
   const monthIncomeTotal = monthIncomeRows.reduce((s, t) => s + amountUsd(t.amount, t.currency), 0);
-  const monthBalance = monthIncomeTotal - monthDonutTotal;
+  const monthBalance = monthIncomeTotal - monthPlannedTotal;
 
   function openModal(type) { setEditEntry(null); setModalType(type); setModalVisible(true); }
   function editTx(t) {
@@ -498,8 +512,8 @@ export default function App() {
 
   const recent = postedTx.slice(0, 8);
   const profileIncome = parseFloat(String((profile && profile.income) || '').replace(/[^0-9.]/g, '')) || 0;
-  const savingsTotal = savingsAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
-  const emergencyFund = savingsAccounts.filter((a) => /emergency|rainy/i.test(a.name || '')).reduce((sum, a) => sum + (a.balance || 0), 0);
+  const savingsTotal = savingsAccounts.reduce((sum, a) => sum + amountUsd(a.balance, a.currency), 0);
+  const emergencyFund = savingsAccounts.filter((a) => /emergency|rainy/i.test(a.name || '')).reduce((sum, a) => sum + amountUsd(a.balance, a.currency), 0);
   const portfolioTotal = portfolio.reduce((sum, h) => sum + holdingValueUsd(h), 0);
   let monthSpent = 0, monthFun = 0;
   for (const t of monthExpenseRows) {
@@ -549,7 +563,7 @@ export default function App() {
             <View style={styles.headerExpenseCol}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.headerTotalLabel}>Expenses</Text>
-                <Text style={styles.headerExpense}>{formatMoney(monthDonutTotal)}</Text>
+                <Text style={styles.headerExpense}>{formatMoney(monthPlannedTotal)}</Text>
               </View>
               <TouchableOpacity style={styles.headerCalBtn} onPress={() => setCalendarOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open calendar">
                 <CatIcon name="calendar-month" size={26} color="#FFFFFF" />
@@ -591,8 +605,29 @@ export default function App() {
                 })}
               </ScrollView>
             )}
-            <View style={styles.chartTop}>
-              <DonutChart data={donutData} selectedKey={selectedKey} onSelectSlice={setSelectedKey} centerTitle="Expenses" size={150} strokeWidth={26} />
+            <View style={styles.toggleCard}>
+              <View style={styles.toggleRowLast}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toggleLabel}>Planned financials</Text>
+                  <Text style={styles.toggleSub}>Full month of bills, even if not due yet</Text>
+                </View>
+                <Switch
+                  value={expenseView === 'planned'}
+                  onValueChange={(on) => { setExpenseView(on ? 'planned' : 'spent'); setSelectedKey(null); }}
+                  trackColor={{ false: COLORS.border, true: '#0EA47A66' }}
+                  thumbColor={expenseView === 'planned' ? COLORS.header : '#f4f4f4'}
+                />
+              </View>
+            </View>
+            <View style={[styles.chartTop, !splitOpen && styles.chartTopCenter]}>
+              <DonutChart
+                data={donutData}
+                selectedKey={selectedKey}
+                onSelectSlice={setSelectedKey}
+                centerTitle={expenseView === 'spent' ? 'Spent' : 'Expenses'}
+                size={150}
+                strokeWidth={26}
+              />
               {splitOpen && (
               <View style={styles.allocSummary}>
                 <Text style={styles.allocSummaryTitle}>Suggested split</Text>
@@ -623,7 +658,11 @@ export default function App() {
             </View>
             <View style={styles.legend}>
               {donutData.length === 0 && (
-                <Text style={styles.emptyHint}>No expenses yet — tap the red − button to add one.</Text>
+                <Text style={styles.emptyHint}>
+                  {expenseView === 'spent'
+                    ? 'Nothing posted yet this month — repeating bills count after their due date.'
+                    : 'No expenses yet — tap the red − button to add one.'}
+                </Text>
               )}
               {donutData.map((d) => {
                 const active = selectedKey === d.key;
@@ -639,6 +678,20 @@ export default function App() {
               })}
             </View>
           </View>
+
+          <TouchableOpacity style={styles.sectionHead} onPress={() => setRecentOpen((o) => !o)} activeOpacity={0.7}>
+            <Text style={styles.sectionHeadText}>Recent activity</Text>
+            <CatIcon name={recentOpen ? 'chevron-up' : 'chevron-down'} size={22} color={COLORS.textMuted} />
+          </TouchableOpacity>
+          {recentOpen && (<>
+            <Text style={styles.swipeHint}>Swipe a row left to edit or delete it.</Text>
+            <View style={styles.listCard}>
+              {recent.length === 0 && <Text style={styles.emptyHint}>Nothing here yet.</Text>}
+              {recent.map((t) => (
+                <SwipeableTxRow key={t.id} t={t} onEdit={editTx} onDelete={deleteTx} />
+              ))}
+            </View>
+          </>)}
 
           <TouchableOpacity style={styles.sectionHead} onPress={() => setPlanOpen((o) => !o)} activeOpacity={0.7}>
             <Text style={styles.sectionHeadText}>Plan your money</Text>
@@ -683,20 +736,6 @@ export default function App() {
           </View>
           )}
 
-          <TouchableOpacity style={styles.sectionHead} onPress={() => setRecentOpen((o) => !o)} activeOpacity={0.7}>
-            <Text style={styles.sectionHeadText}>Recent activity</Text>
-            <CatIcon name={recentOpen ? 'chevron-up' : 'chevron-down'} size={22} color={COLORS.textMuted} />
-          </TouchableOpacity>
-          {recentOpen && (<>
-            <Text style={styles.swipeHint}>Swipe a row left to edit or delete it.</Text>
-            <View style={styles.listCard}>
-              {recent.length === 0 && <Text style={styles.emptyHint}>Nothing here yet.</Text>}
-              {recent.map((t) => (
-                <SwipeableTxRow key={t.id} t={t} onEdit={editTx} onDelete={deleteTx} />
-              ))}
-            </View>
-          </>)}
-
           <View style={{ height: 120 }} />
         </ScrollView>
 
@@ -732,7 +771,7 @@ export default function App() {
           onSave={(p) => { setProfile(p); setProfileOpen(false); }}
           onLogout={() => { setProfileOpen(false); signOut(); }}
         />
-        <SavingsScreen visible={tool === 'savings'} accounts={savingsAccounts} setAccounts={setSavingsAccounts} onClose={() => setTool(null)} />
+        <SavingsScreen visible={tool === 'savings'} accounts={savingsAccounts} setAccounts={setSavingsAccounts} profile={profile} onClose={() => setTool(null)} />
         <PortfolioScreen visible={tool === 'portfolio'} holdings={portfolio} setHoldings={setPortfolio} onClose={() => setTool(null)} />
         <FireScreen
           visible={tool === 'fire'}
@@ -799,6 +838,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   chartTop: { flexDirection: 'row', alignItems: 'center', width: '100%' },
+  chartTopCenter: { justifyContent: 'center' },
   allocSummary: { flex: 1, paddingLeft: 22 },
   chartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 10 },
   chartTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
@@ -808,6 +848,10 @@ const styles = StyleSheet.create({
   chartMonthChipOn: { backgroundColor: COLORS.header, borderColor: COLORS.header },
   chartMonthChipText: { fontSize: 13, fontWeight: '700', color: COLORS.textMuted },
   chartMonthChipTextOn: { color: '#FFFFFF' },
+  toggleCard: { width: '100%', marginBottom: 12, backgroundColor: COLORS.background, borderRadius: 14, paddingHorizontal: 12, paddingTop: 6 },
+  toggleRowLast: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  toggleLabel: { fontSize: 14, fontWeight: '700', color: COLORS.text },
+  toggleSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
   allocSummaryTitle: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 8 },
   allocSumRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 },
   allocSumDot: { width: 9, height: 9, borderRadius: 5, marginRight: 8 },

@@ -41,11 +41,12 @@ const idOrNew = (id) => (UUID.test(String(id || '')) ? String(id) : newId());
 const toDbSaving = (uid, a) => ({
   id: idOrNew(a.id), user_id: uid, name: a.name || 'Account',
   balance: Number(a.balance) || 0, kind: a.kind || 'savings',
+  currency: a.currency || 'USD',
   contributions: a.contributions != null ? Number(a.contributions) : null,
 });
 const fromDbSaving = (r) => ({
   id: r.id, name: r.name, balance: Number(r.balance) || 0,
-  kind: r.kind || 'savings',
+  kind: r.kind || 'savings', currency: r.currency || 'USD',
   contributions: r.contributions != null ? Number(r.contributions) : undefined,
 });
 
@@ -123,7 +124,7 @@ export async function saveProfile(uid, p, alloc) {
 
 export async function syncSavings(uid, accounts) {
   const rows = (accounts || []).map((a) => toDbSaving(uid, a));
-  const res = await replaceUserRows('savings_accounts', uid, rows, ({ kind, contributions, ...r }) => r);
+  const res = await replaceUserRows('savings_accounts', uid, rows, ({ kind, contributions, currency, ...r }) => r);
   return {
     error: res.error,
     rewritten: !res.error && rows.some((r, i) => r.id !== String(accounts[i] && accounts[i].id)),

@@ -140,9 +140,6 @@ export default function CreditCardReminderScreen({ visible, cards = [], setCards
                 thumbColor={notify ? COLORS.header : '#f4f4f4'}
               />
             </View>
-            {Platform.OS === 'web' && (
-              <Text style={styles.warn}>Phone notifications need the iOS or Android app — they don’t fire in the browser.</Text>
-            )}
             {!!permHint && <Text style={styles.warn}>{permHint}</Text>}
             <TouchableOpacity style={[styles.addBtn, busy && { opacity: 0.6 }]} onPress={add} disabled={busy}>
               <Text style={styles.addBtnText}>Add reminder</Text>

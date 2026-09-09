@@ -45,9 +45,9 @@ export default function DonutChart({
           {/* Faint full ring so the donut always looks complete. */}
           <Circle cx={cx} cy={cy} r={radius} stroke={COLORS.border} strokeWidth={strokeWidth} fill="none" />
           {total > 0 &&
-            data.map((d) => {
-              const dash = (d.value / total) * circumference;
-              const gap = circumference - dash;
+            data.filter((d) => Number(d.value) > 0).map((d) => {
+              const dash = (Number(d.value) / total) * circumference;
+              const gap = Math.max(0, circumference - dash);
               const dashOffset = -offsetAcc;
               offsetAcc += dash;
               const dimmed = selectedKey && d.key !== selectedKey;
@@ -63,7 +63,6 @@ export default function DonutChart({
                   strokeDashoffset={dashOffset}
                   fill="none"
                   opacity={dimmed ? 0.35 : 1}
-                  onPress={() => onSelectSlice(d.key === selectedKey ? null : d.key)}
                 />
               );
             })}

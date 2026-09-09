@@ -11,7 +11,8 @@ create table if not exists public.savings_accounts (
 );
 alter table public.savings_accounts
   add column if not exists kind text default 'savings',
-  add column if not exists contributions numeric;
+  add column if not exists contributions numeric,
+  add column if not exists currency text default 'USD';
 alter table public.savings_accounts enable row level security;
 drop policy if exists "savings are private to owner" on public.savings_accounts;
 create policy "savings are private to owner" on public.savings_accounts
