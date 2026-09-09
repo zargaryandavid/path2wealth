@@ -14,11 +14,13 @@ import LoginScreen from './src/LoginScreen';
 import OnboardingScreen from './src/OnboardingScreen';
 import CalendarScreen from './src/CalendarScreen';
 import RecurringScreen from './src/RecurringScreen';
+import CreditCardReminderScreen from './src/CreditCardReminderScreen';
+import { cardLabel, dueHint, daysUntilDue } from './src/cardReminders';
 import { COLORS, EXPENSE_CATEGORIES, categoryInfo, formatMoney, holdingValueUsd, amountUsd } from './src/theme';
-import { CatIcon } from './src/Icons';
+import { CatIcon, IconUser } from './src/Icons';
 import { supabase, isSupabaseConfigured, authRedirectTo } from './src/supabase';
 import { loadAll, saveProfile, syncTransactions, syncSavings, syncPortfolio } from './src/db';
-import { calendarItems, cycleMonths, firstPaymentOn, postedOccurrences, seriesIdOf, todayKey } from './src/recurring';
+import { calendarItems, cycleMonths, expandSeries, firstPaymentOn, postedOccurrences, seriesIdOf, todayKey } from './src/recurring';
 
 const today = todayKey();
 // Demo data only when there is no cloud backend configured.
@@ -157,9 +159,11 @@ export default function App() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [tool, setTool] = useState(null);
+  const [creditCards, setCreditCards] = useState([]);
   const [planOpen, setPlanOpen] = useState(true);
   const [recentOpen, setRecentOpen] = useState(true);
   const [splitOpen, setSplitOpen] = useState(true);
+  const [expenseMonth, setExpenseMonth] = useState(today.slice(0, 7));
   const [alloc, setAlloc] = useState({ essentials: 50, savings: 20, investments: 15, fun: 15 });
   const [savingsAccounts, setSavingsAccounts] = useState([
     { id: 's1', name: 'Emergency Fund', balance: 5000 },
@@ -194,15 +198,14 @@ export default function App() {
       let savings = d.savingsAccounts || [];
       let holdings = d.portfolio || [];
       let split = d.alloc;
-      if (!savings.length || !holdings.length || !split) {
-        try {
-          const v = await AsyncStorage.getItem('p2w_local');
-          const local = v ? JSON.parse(v) : {};
-          if (!savings.length && local.savingsAccounts) savings = local.savingsAccounts;
-          if (!holdings.length && local.portfolio) holdings = local.portfolio;
-          if (!split && local.alloc) split = local.alloc;
-        } catch (e) {}
-      }
+      try {
+        const v = await AsyncStorage.getItem('p2w_local');
+        const local = v ? JSON.parse(v) : {};
+        if (!savings.length && local.savingsAccounts) savings = local.savingsAccounts;
+        if (!holdings.length && local.portfolio) holdings = local.portfolio;
+        if (!split && local.alloc) split = local.alloc;
+        if (local.creditCards) setCreditCards(local.creditCards);
+      } catch (e) {}
       if (savings.length) setSavingsAccounts(savings);
       if (holdings.length) setPortfolio(holdings);
       if (split) setAlloc(split);
@@ -259,12 +262,13 @@ export default function App() {
         if (d.savingsAccounts) setSavingsAccounts(d.savingsAccounts);
         if (d.portfolio) setPortfolio(mergeMyInvestHoldings(d.portfolio));
         if (d.alloc) setAlloc(d.alloc);
+        if (d.creditCards) setCreditCards(d.creditCards);
       } catch (e) {}
     }).catch(() => {});
   }, [cloud]);
   useEffect(() => {
-    AsyncStorage.setItem('p2w_local', JSON.stringify({ savingsAccounts, portfolio, alloc })).catch(() => {});
-  }, [savingsAccounts, portfolio, alloc]);
+    AsyncStorage.setItem('p2w_local', JSON.stringify({ savingsAccounts, portfolio, alloc, creditCards })).catch(() => {});
+  }, [savingsAccounts, portfolio, alloc, creditCards]);
 
   // Bond coupons are derived from the portfolio (never stored). Native currency; totals convert AMD → USD.
   const bondTx = useMemo(() => portfolio.filter((h) => h.kind === 'Bond' && h.yield).map((h) => {
@@ -286,17 +290,42 @@ export default function App() {
   const postedTx = useMemo(() => postedOccurrences(allTx), [allTx]);
   const calTx = useMemo(() => calendarItems(allTx), [allTx]);
 
-  const totals = useMemo(() => {
-    let income = 0, expense = 0;
-    for (const t of postedTx) {
-      const usd = amountUsd(t.amount, t.currency);
-      if (t.type === 'income') income += usd; else expense += usd;
+  const expenseMonths = useMemo(() => {
+    const set = new Set([today.slice(0, 7)]);
+    for (const t of transactions) {
+      if (t.type !== 'expense') continue;
+      if (t.recurring) {
+        for (const d of expandSeries(t)) {
+          const k = String(d || '').slice(0, 7);
+          if (/^\d{4}-\d{2}$/.test(k)) set.add(k);
+        }
+      } else {
+        const k = String(t.occurredOn || t.date || '').slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(k)) set.add(k);
+      }
     }
-    return { income, expense, balance: income - expense };
-  }, [postedTx]);
+    return [...set].sort();
+  }, [transactions]);
 
-  const monthPrefix = today.slice(0, 7);
-  // This month's plan: each repeating expense once, plus one-time expenses in this month.
+  const monthIncomeRows = useMemo(() => {
+    const seen = new Set();
+    const rows = [];
+    for (const t of allTx) {
+      if (t.type !== 'income') continue;
+      if (t.recurring) {
+        const id = seriesIdOf(t);
+        if (seen.has(id)) continue;
+        if (!expandSeries(t).some((d) => String(d).startsWith(expenseMonth))) continue;
+        seen.add(id);
+        rows.push(t);
+      } else if (String(t.occurredOn || t.date || '').startsWith(expenseMonth)) {
+        rows.push(t);
+      }
+    }
+    return rows;
+  }, [allTx, expenseMonth]);
+
+  // Selected month: repeating expenses that actually fall in this month, plus one-time expenses in that month.
   const monthExpenseRows = useMemo(() => {
     const seen = new Set();
     const rows = [];
@@ -305,14 +334,15 @@ export default function App() {
       if (t.recurring) {
         const id = seriesIdOf(t);
         if (seen.has(id)) continue;
+        if (!expandSeries(t).some((d) => String(d).startsWith(expenseMonth))) continue;
         seen.add(id);
         rows.push(t);
-      } else if (String(t.occurredOn || t.date || '').startsWith(monthPrefix)) {
+      } else if (String(t.occurredOn || t.date || '').startsWith(expenseMonth)) {
         rows.push(t);
       }
     }
     return rows;
-  }, [transactions, monthPrefix]);
+  }, [transactions, expenseMonth]);
 
   const donutData = useMemo(() => {
     const byCat = {};
@@ -325,6 +355,8 @@ export default function App() {
     }));
   }, [monthExpenseRows]);
   const monthDonutTotal = donutData.reduce((s, d) => s + d.value, 0);
+  const monthIncomeTotal = monthIncomeRows.reduce((s, t) => s + amountUsd(t.amount, t.currency), 0);
+  const monthBalance = monthIncomeTotal - monthDonutTotal;
 
   function openModal(type) { setEditEntry(null); setModalType(type); setModalVisible(true); }
   function editTx(t) {
@@ -499,25 +531,27 @@ export default function App() {
       <SafeAreaView style={styles.headerSafe}>
         <View style={styles.header}>
           <View style={styles.headerTop}>
-            <Text style={styles.appName}>Path2Wealth</Text>
-            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setProfileOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open profile">
-              <CatIcon name="account-circle" size={30} color="#FFFFFF" />
-            </TouchableOpacity>
+            <Text style={styles.balanceLabel}>Balance</Text>
+            <View style={styles.headerBrand}>
+              <Text style={styles.appName}>Path2Wealth</Text>
+              <TouchableOpacity style={styles.headerIconBtn} onPress={() => setProfileOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open profile">
+                <IconUser size={28} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
           </View>
-          <Text style={styles.balanceLabel}>Balance</Text>
-          <Text style={styles.balanceValue}>{moneyWhole(totals.balance)}</Text>
+          <Text style={styles.balanceValue}>{moneyWhole(monthBalance)}</Text>
           <View style={styles.headerTotals}>
             <View style={styles.headerTotalItem}>
               <Text style={styles.headerTotalLabel}>Income</Text>
-              <Text style={styles.headerIncome}>{formatMoney(totals.income)}</Text>
+              <Text style={styles.headerIncome}>{formatMoney(monthIncomeTotal)}</Text>
             </View>
             <View style={styles.headerDivider} />
             <View style={styles.headerExpenseCol}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.headerTotalLabel}>Expenses</Text>
-                <Text style={styles.headerExpense}>{formatMoney(totals.expense)}</Text>
+                <Text style={styles.headerExpense}>{formatMoney(monthDonutTotal)}</Text>
               </View>
-              <TouchableOpacity style={styles.headerIconBtn} onPress={() => setCalendarOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open calendar">
+              <TouchableOpacity style={styles.headerCalBtn} onPress={() => setCalendarOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open calendar">
                 <CatIcon name="calendar-month" size={26} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
@@ -536,6 +570,27 @@ export default function App() {
                 <CatIcon name={splitOpen ? 'eye-outline' : 'eye-off-outline'} size={22} color={COLORS.textMuted} />
               </TouchableOpacity>
             </View>
+            {expenseMonths.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chartMonthRow} style={styles.chartMonthScroll} nestedScrollEnabled>
+                {expenseMonths.map((ym) => {
+                  const on = ym === expenseMonth;
+                  const [y, m] = ym.split('-').map(Number);
+                  const label = new Date(y, m - 1, 1).toLocaleString(undefined, {
+                    month: 'long',
+                    ...(String(y) !== today.slice(0, 4) ? { year: 'numeric' } : {}),
+                  });
+                  return (
+                    <TouchableOpacity
+                      key={ym}
+                      style={[styles.chartMonthChip, on && styles.chartMonthChipOn]}
+                      onPress={() => { setExpenseMonth(ym); setSelectedKey(null); }}
+                    >
+                      <Text style={[styles.chartMonthChipText, on && styles.chartMonthChipTextOn]}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
             <View style={styles.chartTop}>
               <DonutChart data={donutData} selectedKey={selectedKey} onSelectSlice={setSelectedKey} centerTitle="Expenses" size={150} strokeWidth={26} />
               {splitOpen && (
@@ -606,9 +661,23 @@ export default function App() {
               <View style={{ flex: 1 }}><Text style={styles.toolTitle}>FIRE forecast</Text><Text style={styles.toolSub}>See when you could retire</Text></View>
               <CatIcon name="chevron-right" size={22} color={COLORS.textMuted} />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.toolRow, { borderBottomWidth: 0 }]} onPress={() => setTool('recurring')}>
+            <TouchableOpacity style={styles.toolRow} onPress={() => setTool('recurring')}>
               <View style={[styles.toolIcon, { backgroundColor: '#0EA47A18' }]}><CatIcon name="autorenew" size={22} color={COLORS.header} /></View>
               <View style={{ flex: 1 }}><Text style={styles.toolTitle}>Repeating</Text><Text style={styles.toolSub}>Edit or delete monthly income & expenses</Text></View>
+              <CatIcon name="chevron-right" size={22} color={COLORS.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.toolRow, { borderBottomWidth: 0 }]} onPress={() => setTool('cards')}>
+              <View style={[styles.toolIcon, { backgroundColor: '#5B6CFF18' }]}><CatIcon name="credit-card-outline" size={22} color="#5B6CFF" /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.toolTitle}>Credit card reminder</Text>
+                <Text style={styles.toolSub}>
+                  {creditCards.length === 0
+                    ? 'Bank of America 4483 · due date & 3-day alert'
+                    : creditCards.length === 1
+                      ? `${cardLabel(creditCards[0])} · ${dueHint(creditCards[0])}`
+                      : `${creditCards.length} cards · ${dueHint([...creditCards].sort((a, b) => daysUntilDue(a.dueDay) - daysUntilDue(b.dueDay))[0])}`}
+                </Text>
+              </View>
               <CatIcon name="chevron-right" size={22} color={COLORS.textMuted} />
             </TouchableOpacity>
           </View>
@@ -689,6 +758,12 @@ export default function App() {
           onEdit={(item) => { setTool(null); editTx(item); }}
           onRemove={(id) => deleteTx(id)}
         />
+        <CreditCardReminderScreen
+          visible={tool === 'cards'}
+          cards={creditCards}
+          setCards={setCreditCards}
+          onClose={() => setTool(null)}
+        />
       </View>
     </GestureHandlerRootView>
   );
@@ -699,22 +774,24 @@ const styles = StyleSheet.create({
   headerSafe: { backgroundColor: COLORS.header },
   bodyWrap: { flex: 1, backgroundColor: COLORS.background },
   header: {
-    backgroundColor: COLORS.header, paddingHorizontal: 22, paddingBottom: 22,
-    paddingTop: Platform.OS === 'android' ? 18 : 6,
-    borderBottomLeftRadius: 26, borderBottomRightRadius: 26,
+    backgroundColor: COLORS.header, paddingHorizontal: 22, paddingBottom: 20,
+    paddingTop: Platform.OS === 'android' ? 14 : 4,
+    borderBottomLeftRadius: 24, borderBottomRightRadius: 24,
   },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerIconBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  appName: { color: 'rgba(255,255,255,0.9)', fontSize: 15, fontWeight: '700' },
-  balanceLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 13 },
-  balanceValue: { color: '#FFFFFF', fontSize: 40, fontWeight: '800', marginTop: 2 },
-  headerTotals: { flexDirection: 'row', marginTop: 16, alignItems: 'center' },
+  headerCalBtn: { width: 36, height: 40, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 2 },
+  appName: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  balanceLabel: { color: '#FFFFFF', fontSize: 14, fontWeight: '400' },
+  balanceValue: { color: '#FFFFFF', fontSize: 42, fontWeight: '800', marginTop: 2, letterSpacing: -0.5 },
+  headerTotals: { flexDirection: 'row', marginTop: 18, alignItems: 'flex-end' },
   headerTotalItem: { flex: 1 },
-  headerDivider: { width: 1.5, height: 42, backgroundColor: 'rgba(255,255,255,0.55)', marginHorizontal: 16 },
-  headerExpenseCol: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingLeft: 4 },
-  headerTotalLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginBottom: 2 },
-  headerIncome: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  headerExpense: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  headerDivider: { width: 1, height: 38, backgroundColor: 'rgba(255,255,255,0.7)', marginHorizontal: 14, marginBottom: 2 },
+  headerExpenseCol: { flex: 1, flexDirection: 'row', alignItems: 'flex-end' },
+  headerTotalLabel: { color: '#FFFFFF', fontSize: 13, marginBottom: 3, fontWeight: '400' },
+  headerIncome: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  headerExpense: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
   scroll: { flex: 1, backgroundColor: COLORS.background },
   body: { padding: 16 },
   chartCard: {
@@ -723,8 +800,14 @@ const styles = StyleSheet.create({
   },
   chartTop: { flexDirection: 'row', alignItems: 'center', width: '100%' },
   allocSummary: { flex: 1, paddingLeft: 22 },
-  chartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 14 },
+  chartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 10 },
   chartTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+  chartMonthScroll: { width: '100%' },
+  chartMonthRow: { flexDirection: 'row', gap: 8, paddingBottom: 12 },
+  chartMonthChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.card },
+  chartMonthChipOn: { backgroundColor: COLORS.header, borderColor: COLORS.header },
+  chartMonthChipText: { fontSize: 13, fontWeight: '700', color: COLORS.textMuted },
+  chartMonthChipTextOn: { color: '#FFFFFF' },
   allocSummaryTitle: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 8 },
   allocSumRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7 },
   allocSumDot: { width: 9, height: 9, borderRadius: 5, marginRight: 8 },
