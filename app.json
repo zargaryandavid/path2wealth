@@ -9,28 +9,29 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Path2Wealth uses your location only to auto-fill your city when you set up or edit your profile."
-      }
+        "NSLocationWhenInUseUsageDescription": "Path2Wealth uses your location only to auto-fill your city when you set up or edit your profile.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.zargaryandavid.path2wealth",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0EA47A",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "package": "com.zargaryandavid.path2wealth",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      [
-        "expo-notifications",
-        {
-          "color": "#0EA47A",
-          "defaultChannel": "reminders"
-        }
-      ]
-    ]
+    "extra": {
+      "eas": {
+        "projectId": "42ee786f-5540-42c8-b6c2-b9364aa6421d"
+      }
+    }
   }
 }
