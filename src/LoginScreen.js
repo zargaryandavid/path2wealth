@@ -76,18 +76,6 @@ export default function LoginScreen({ onSignIn, onVerify, onResend, pendingEmail
       </View>
 
       <View style={styles.bottom}>
-        <TouchableOpacity style={[styles.authBtn, styles.appleBtn]} activeOpacity={0.85} onPress={() => oauthSoon('Apple')}>
-          <IconApple size={19} color="#FFFFFF" />
-          <Text style={styles.appleText}>Continue with Apple</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.authBtn, styles.googleBtn]} activeOpacity={0.85} onPress={() => oauthSoon('Google')}>
-          <IconGoogle size={19} />
-          <Text style={styles.googleText}>Continue with Google</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.or}>or email</Text>
-
         {pendingEmail ? (
           <>
             <Text style={styles.verifyHint}>We sent a 6-digit code to {pendingEmail}. Check inbox and spam.</Text>
@@ -125,7 +113,7 @@ export default function LoginScreen({ onSignIn, onVerify, onResend, pendingEmail
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
-              autoCorrect
+              autoCorrect={false}
               spellCheck={false}
               keyboardType="default"
               textContentType="emailAddress"

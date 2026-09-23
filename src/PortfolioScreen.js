@@ -18,9 +18,7 @@ const KINDS = [
 const kindInfo = (k) => KINDS.find((x) => x.key === k) || KINDS[0];
 const CYCLES = ['Monthly', 'Quarterly', '6 months', 'Yearly'];
 const CURRENCIES = [
-  { code: 'USD', sym: '$' }, { code: 'EUR', sym: '€' }, { code: 'GBP', sym: '£' },
-  { code: 'JPY', sym: '¥' }, { code: 'CHF', sym: 'CHF ' }, { code: 'CAD', sym: 'C$' }, { code: 'AUD', sym: 'A$' },
-  { code: 'AMD', sym: '֏' },
+  { code: 'USD', sym: '$' }, { code: 'AMD', sym: '֏' },
 ];
 const curSym = (code) => currencySymbol(code);
 function fmtCur(amount, code) {

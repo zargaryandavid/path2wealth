@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, Platform, Switch,
+  View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar, Platform, Switch, Modal,
 } from 'react-native';
 import { GestureHandlerRootView, Swipeable, ScrollView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -15,8 +15,8 @@ import OnboardingScreen from './src/OnboardingScreen';
 import CalendarScreen from './src/CalendarScreen';
 import RecurringScreen from './src/RecurringScreen';
 import CreditCardReminderScreen from './src/CreditCardReminderScreen';
-import { cardLabel, dueHint, daysUntilDue } from './src/cardReminders';
-import { COLORS, EXPENSE_CATEGORIES, categoryInfo, formatMoney, holdingValueUsd, amountUsd } from './src/theme';
+import { cardLabel, dueHint, daysUntilDue, DEFAULT_CREDIT_CARDS } from './src/cardReminders';
+import { COLORS, categoryInfo, mergeCategories, formatMoney, holdingValueUsd, amountUsd } from './src/theme';
 import { CatIcon, IconUser } from './src/Icons';
 import { supabase, isSupabaseConfigured, authRedirectTo } from './src/supabase';
 import { loadAll, saveProfile, syncTransactions, syncSavings, syncPortfolio } from './src/db';
@@ -79,6 +79,33 @@ function moneyWhole(amount) {
   return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US');
 }
 
+const ROTH_YEARLY = 7000;
+
+function isRothAccount(a) {
+  return a.kind === 'roth' || /roth/i.test(a.name || '');
+}
+
+function is529Account(a) {
+  return a.kind === '529' || /529|esa|education/i.test(a.name || '');
+}
+
+function HeaderCheck({ done, label, hint, meta, onPress }) {
+  return (
+    <TouchableOpacity style={styles.checkRow} onPress={onPress} activeOpacity={0.7}>
+      <CatIcon
+        name={done ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+        size={22}
+        color={done ? COLORS.header : COLORS.textMuted}
+      />
+      <View style={styles.checkCopy}>
+        <Text style={[styles.checkLabel, done && styles.checkLabelOn]}>{label}</Text>
+        {!!hint && <Text style={styles.checkHint}>{hint}</Text>}
+      </View>
+      <Text style={styles.checkMeta}>{meta}</Text>
+    </TouchableOpacity>
+  );
+}
+
 function txDayParts(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return { day: '–', mon: '' };
@@ -86,9 +113,9 @@ function txDayParts(iso) {
 }
 
 // A transaction row. Real entries swipe to edit/delete; bond coupons are read-only.
-function SwipeableTxRow({ t, onEdit, onDelete }) {
+function SwipeableTxRow({ t, onEdit, onDelete, custom }) {
   const ref = React.useRef(null);
-  const info = categoryInfo(t.type, t.category);
+  const info = categoryInfo(t.type, t.category, t.type === 'income' ? custom && custom.income : custom && custom.expense);
   const isIncome = t.type === 'income';
   const close = () => ref.current && ref.current.close();
   const day = txDayParts(t.date);
@@ -158,19 +185,20 @@ export default function App() {
   const [selectedKey, setSelectedKey] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [checkOpen, setCheckOpen] = useState(false);
   const [tool, setTool] = useState(null);
-  const [creditCards, setCreditCards] = useState([]);
+  const [creditCards, setCreditCards] = useState(DEFAULT_CREDIT_CARDS);
   const [planOpen, setPlanOpen] = useState(true);
   const [recentOpen, setRecentOpen] = useState(true);
   const [splitOpen, setSplitOpen] = useState(true);
   const [expenseMonth, setExpenseMonth] = useState(today.slice(0, 7));
   const [expenseView, setExpenseView] = useState('planned'); // planned = full month, spent = posted so far
   const [alloc, setAlloc] = useState({ essentials: 50, savings: 20, investments: 15, fun: 15 });
-  const [savingsAccounts, setSavingsAccounts] = useState([
+  const [savingsAccounts, setSavingsAccounts] = useState(isSupabaseConfigured ? [] : [
     { id: 's1', name: 'Emergency Fund', balance: 5000 },
     { id: 's2', name: 'HYSA', balance: 12000 },
   ]);
-  const [portfolio, setPortfolio] = useState(() => [...MYINVEST_STOCKS, ...MYINVEST_BONDS, { id: 'p-gold', kind: 'Metal', name: 'Gold (oz)', qty: 2, price: 2400 }]);
+  const [portfolio, setPortfolio] = useState(() => isSupabaseConfigured ? [] : [...MYINVEST_STOCKS, ...MYINVEST_BONDS, { id: 'p-gold', kind: 'Metal', name: 'Gold (oz)', qty: 2, price: 2400 }]);
 
   const cloud = isSupabaseConfigured && !!(user && user.id);
 
@@ -178,11 +206,11 @@ export default function App() {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session && data.session.user ? { id: data.session.user.id } : null);
+      setUser(data.session && data.session.user ? { id: data.session.user.id, email: data.session.user.email } : null);
       setAuthReady(true);
     }).catch(() => setAuthReady(true));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      setUser(s && s.user ? { id: s.user.id } : null);
+      setUser(s && s.user ? { id: s.user.id, email: s.user.email } : null);
     });
     return () => { try { sub.subscription.unsubscribe(); } catch (e) {} };
   }, []);
@@ -205,7 +233,7 @@ export default function App() {
         if (!savings.length && local.savingsAccounts) savings = local.savingsAccounts;
         if (!holdings.length && local.portfolio) holdings = local.portfolio;
         if (!split && local.alloc) split = local.alloc;
-        if (local.creditCards) setCreditCards(local.creditCards);
+        if (local.creditCards && local.creditCards.length) setCreditCards(local.creditCards);
       } catch (e) {}
       if (savings.length) setSavingsAccounts(savings);
       if (holdings.length) setPortfolio(holdings);
@@ -263,7 +291,7 @@ export default function App() {
         if (d.savingsAccounts) setSavingsAccounts(d.savingsAccounts);
         if (d.portfolio) setPortfolio(mergeMyInvestHoldings(d.portfolio));
         if (d.alloc) setAlloc(d.alloc);
-        if (d.creditCards) setCreditCards(d.creditCards);
+        if (d.creditCards && d.creditCards.length) setCreditCards(d.creditCards);
       } catch (e) {}
     }).catch(() => {});
   }, [cloud]);
@@ -292,13 +320,13 @@ export default function App() {
   const calTx = useMemo(() => calendarItems(allTx), [allTx]);
 
   const expenseMonths = useMemo(() => {
-    const set = new Set([today.slice(0, 7)]);
-    for (const t of transactions) {
-      if (t.type !== 'expense') continue;
+    const set = new Set();
+    const todayYm = today.slice(0, 7);
+    for (const t of allTx) {
       if (t.recurring) {
         for (const d of expandSeries(t)) {
           const k = String(d || '').slice(0, 7);
-          if (/^\d{4}-\d{2}$/.test(k)) set.add(k);
+          if (/^\d{4}-\d{2}$/.test(k) && k <= todayYm) set.add(k);
         }
       } else {
         const k = String(t.occurredOn || t.date || '').slice(0, 7);
@@ -306,7 +334,13 @@ export default function App() {
       }
     }
     return [...set].sort();
-  }, [transactions]);
+  }, [allTx]);
+
+  useEffect(() => {
+    if (expenseMonths.length && !expenseMonths.includes(expenseMonth)) {
+      setExpenseMonth(expenseMonths[expenseMonths.length - 1]);
+    }
+  }, [expenseMonths, expenseMonth]);
 
   const monthIncomeRows = useMemo(() => {
     const seen = new Set();
@@ -363,10 +397,10 @@ export default function App() {
       const usd = amountUsd(t.amount, t.currency);
       byCat[t.category] = (byCat[t.category] || 0) + usd;
     }
-    return EXPENSE_CATEGORIES.filter((c) => byCat[c.key]).map((c) => ({
+    return mergeCategories('expense', (profile && profile.customExpense) || []).filter((c) => byCat[c.key]).map((c) => ({
       key: c.key, label: c.label, value: byCat[c.key], color: c.color, icon: c.icon,
     }));
-  }, [donutRows]);
+  }, [donutRows, profile]);
   const monthDonutTotal = donutData.reduce((s, d) => s + d.value, 0);
   const monthPlannedTotal = monthExpenseRows.reduce((s, t) => s + amountUsd(t.amount, t.currency), 0);
   const monthIncomeTotal = monthIncomeRows.reduce((s, t) => s + amountUsd(t.amount, t.currency), 0);
@@ -413,6 +447,26 @@ export default function App() {
     setSelectedKey(null); setModalVisible(false); setEditEntry(null);
   }
 
+function friendlyAuthError(err, mode) {
+  const raw = String((err && err.message) || err || '');
+  const m = raw.toLowerCase();
+  if (m.includes('rate limit')) {
+    return 'Too many sign-up emails in a short time. Wait about an hour, then tap Sign in if this email already has an account.';
+  }
+  if (m.includes('already registered') || m.includes('already been registered') || m.includes('already exists')) {
+    return 'This email already has an account. Tap Sign in instead.';
+  }
+  if (m.includes('invalid login') || m.includes('invalid credentials')) {
+    return mode === 'signin'
+      ? 'Wrong email or password. If you just created an account, confirm the email code first, then sign in.'
+      : raw;
+  }
+  if (m.includes('email not confirmed')) {
+    return 'Confirm this email first. Use Create account again to resend a code, or wait if you already requested one.';
+  }
+  return raw || 'Could not sign in.';
+}
+
   async function handleEmailAuth(mode, email, password) {
     if (mode === 'apple' || mode === 'google') {
       await handleSignIn(mode);
@@ -429,15 +483,20 @@ export default function App() {
         const { data, error } = await supabase.auth.signUp({
           email, password, options: { emailRedirectTo: authRedirectTo() },
         });
-        if (error) { setAuthError(error.message); return; }
-        if (data.session && data.user) { setUser({ id: data.user.id }); return; }
+        if (error) { setAuthError(friendlyAuthError(error, 'signup')); return; }
+        const already = data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0;
+        if (already) {
+          setAuthError('This email already has an account. Tap Sign in instead.');
+          return;
+        }
+        if (data.session && data.user) { setUser({ id: data.user.id, email: data.user.email || email }); return; }
         setPendingEmail(email);
-        setAuthError('Check your email for a 6-digit code, then verify.');
+        setAuthError('');
         return;
       }
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) { setAuthError(error.message); return; }
-      if (data.user) setUser({ id: data.user.id });
+      if (error) { setAuthError(friendlyAuthError(error, 'signin')); return; }
+      if (data.user) setUser({ id: data.user.id, email: data.user.email || email });
     } catch (e) {
       setAuthError(e.message || String(e));
     } finally {
@@ -450,10 +509,10 @@ export default function App() {
     setAuthError('');
     try {
       const { data, error } = await supabase.auth.verifyOtp({ email, token: String(token).trim(), type: 'signup' });
-      if (error) { setAuthError(error.message); return; }
+      if (error) { setAuthError(friendlyAuthError(error, 'verify')); return; }
       if (data.user) {
         setPendingEmail('');
-        setUser({ id: data.user.id });
+        setUser({ id: data.user.id, email: data.user.email || email });
       }
     } catch (e) {
       setAuthError(e.message || String(e));
@@ -467,7 +526,7 @@ export default function App() {
     setAuthError('');
     try {
       const { error } = await supabase.auth.resend({ type: 'signup', email });
-      if (error) setAuthError(error.message);
+      if (error) setAuthError(friendlyAuthError(error, 'resend'));
     } catch (e) {
       setAuthError(e.message || String(e));
     } finally {
@@ -480,7 +539,7 @@ export default function App() {
     if (isSupabaseConfigured) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (session && session.user) { setUser({ id: session.user.id }); return; }
+        if (session && session.user) { setUser({ id: session.user.id, email: session.user.email }); return; }
       } catch (e) {}
     }
     setUser({ provider });
@@ -515,22 +574,47 @@ export default function App() {
   const savingsTotal = savingsAccounts.reduce((sum, a) => sum + amountUsd(a.balance, a.currency), 0);
   const emergencyFund = savingsAccounts.filter((a) => /emergency|rainy/i.test(a.name || '')).reduce((sum, a) => sum + amountUsd(a.balance, a.currency), 0);
   const portfolioTotal = portfolio.reduce((sum, h) => sum + holdingValueUsd(h), 0);
-  let monthSpent = 0, monthFun = 0;
+  let monthSpent = 0, monthFun = 0, monthSavingExp = 0, monthInvestExp = 0;
   for (const t of monthExpenseRows) {
     const usd = amountUsd(t.amount, t.currency);
     if (t.category === 'fun') monthFun += usd;
+    else if (t.category === 'saving' || t.category === 'savings') monthSavingExp += usd;
+    else if (t.category === 'investment' || t.category === 'investments') monthInvestExp += usd;
     else monthSpent += usd;
   }
+  const monthSalary = monthIncomeRows
+    .filter((t) => t.category === 'salary')
+    .reduce((s, t) => s + amountUsd(t.amount, t.currency), 0);
+  const splitSalary = monthSalary || profileIncome;
   const repeatingMonthly = transactions
     .filter((t) => t.type === 'expense' && t.recurring)
     .reduce((s, t) => s + amountUsd(t.amount, t.currency), 0);
+  const cushionMonth = repeatingMonthly * 1.3;
+  const emergencyMonths = cushionMonth > 0 ? savingsTotal / cushionMonth : 0;
+  const emergencyDone = cushionMonth > 0 && savingsTotal >= cushionMonth * 3;
+  const emergencyHint = cushionMonth > 0
+    ? `${emergencyMonths.toFixed(1)} months · target ${moneyWhole(cushionMonth * 3)}–${moneyWhole(cushionMonth * 6)} (3–6 mo of repeating + 30%)`
+    : '3–6 months of repeating expenses + 30%';
+  const emergencyMeta = cushionMonth > 0 ? moneyWhole(savingsTotal) : 'add bills';
+  const rothHave = savingsAccounts.filter(isRothAccount).reduce((s, a) => {
+    const n = a.contributions != null ? Number(a.contributions) : Number(a.balance);
+    return s + amountUsd(n, a.currency);
+  }, 0);
+  const rothDone = rothHave >= ROTH_YEARLY;
+  const stockHave = portfolio.filter((h) => h.kind === 'Stock').reduce((s, h) => s + holdingValueUsd(h), 0);
+  const bondHave = portfolio.filter((h) => h.kind === 'Bond').reduce((s, h) => s + holdingValueUsd(h), 0);
+  const investHave = stockHave + bondHave;
+  const investDone = stockHave > 0 && bondHave > 0;
+  const collegeAccounts = savingsAccounts.filter(is529Account);
+  const collegeHave = collegeAccounts.reduce((s, a) => s + amountUsd(a.balance, a.currency), 0);
+  const collegeDone = collegeAccounts.length > 0 && collegeHave > 0;
   const postedAnnual = (monthSpent + monthFun) * 12;
   const splitAnnual = profileIncome * ((alloc.essentials || 0) + (alloc.fun || 0)) / 100 * 12;
   const fireAnnualSpend = Math.round(Math.max(repeatingMonthly * 12, postedAnnual, splitAnnual) || 0);
   const splitCurrent = {
     essentials: monthSpent,
-    savings: savingsTotal,
-    investments: portfolioTotal,
+    savings: monthSavingExp,
+    investments: monthInvestExp,
     fun: monthFun,
   };
   const fireSources = [];
@@ -545,7 +629,7 @@ export default function App() {
       <SafeAreaView style={styles.headerSafe}>
         <View style={styles.header}>
           <View style={styles.headerTop}>
-            <Text style={styles.balanceLabel}>Balance</Text>
+            <Text style={styles.balanceLabel}>This month</Text>
             <View style={styles.headerBrand}>
               <Text style={styles.appName}>Path2Wealth</Text>
               <TouchableOpacity style={styles.headerIconBtn} onPress={() => setProfileOpen(true)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Open profile">
@@ -553,7 +637,17 @@ export default function App() {
               </TouchableOpacity>
             </View>
           </View>
-          <Text style={styles.balanceValue}>{moneyWhole(monthBalance)}</Text>
+          <View style={styles.headerMid}>
+            <Text style={styles.balanceValue}>{moneyWhole(monthBalance)}</Text>
+            <TouchableOpacity
+              style={styles.checkIconBtn}
+              onPress={() => setCheckOpen(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Open baby step checklist"
+            >
+              <CatIcon name="format-list-checks" size={28} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
           <View style={styles.headerTotals}>
             <View style={styles.headerTotalItem}>
               <Text style={styles.headerTotalLabel}>Income</Text>
@@ -579,9 +673,6 @@ export default function App() {
             <View style={styles.chartTitleRow}>
               <TouchableOpacity onPress={() => setSelectedKey(null)} activeOpacity={0.7}>
                 <Text style={styles.chartTitle}>Monthly expenses</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setSplitOpen(!splitOpen)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <CatIcon name={splitOpen ? 'eye-outline' : 'eye-off-outline'} size={22} color={COLORS.textMuted} />
               </TouchableOpacity>
             </View>
             {expenseMonths.length > 0 && (
@@ -611,28 +702,43 @@ export default function App() {
                   <Text style={styles.toggleLabel}>Planned financials</Text>
                   <Text style={styles.toggleSub}>Full month of bills, even if not due yet</Text>
                 </View>
-                <Switch
-                  value={expenseView === 'planned'}
-                  onValueChange={(on) => { setExpenseView(on ? 'planned' : 'spent'); setSelectedKey(null); }}
-                  trackColor={{ false: COLORS.border, true: '#0EA47A66' }}
-                  thumbColor={expenseView === 'planned' ? COLORS.header : '#f4f4f4'}
-                />
+                <View style={styles.toggleCol}>
+                  <Switch
+                    value={expenseView === 'planned'}
+                    onValueChange={(on) => { setExpenseView(on ? 'planned' : 'spent'); setSelectedKey(null); }}
+                    trackColor={{ false: COLORS.border, true: '#0EA47A66' }}
+                    thumbColor={expenseView === 'planned' ? COLORS.header : '#f4f4f4'}
+                  />
+                </View>
               </View>
             </View>
-            <View style={[styles.chartTop, !splitOpen && styles.chartTopCenter]}>
-              <DonutChart
-                data={donutData}
-                selectedKey={selectedKey}
-                onSelectSlice={setSelectedKey}
-                centerTitle={expenseView === 'spent' ? 'Spent' : 'Expenses'}
-                size={150}
-                strokeWidth={26}
-              />
+            <View style={styles.splitEyeRow}>
+              <View style={styles.toggleCol}>
+                <TouchableOpacity
+                  onPress={() => setSplitOpen(!splitOpen)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel={splitOpen ? 'Hide suggested split' : 'Show suggested split'}
+                >
+                  <CatIcon name={splitOpen ? 'eye-outline' : 'eye-off-outline'} size={22} color={COLORS.textMuted} />
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={styles.chartTop}>
+              <View style={styles.chartDonutWrap}>
+                <DonutChart
+                  data={donutData}
+                  selectedKey={selectedKey}
+                  onSelectSlice={setSelectedKey}
+                  centerTitle={expenseView === 'spent' ? 'Spent' : 'Expenses'}
+                  size={150}
+                  strokeWidth={26}
+                />
+              </View>
               {splitOpen && (
               <View style={styles.allocSummary}>
                 <Text style={styles.allocSummaryTitle}>Suggested split</Text>
                 {ALLOC_BUCKETS.map((b) => {
-                  const target = profileIncome * (alloc[b.key] || 0) / 100;
+                  const target = splitSalary * (alloc[b.key] || 0) / 100;
                   const current = splitCurrent[b.key] || 0;
                   const spendLike = b.key === 'essentials' || b.key === 'fun';
                   const exceeded = spendLike ? current > target : current < target;
@@ -688,7 +794,7 @@ export default function App() {
             <View style={styles.listCard}>
               {recent.length === 0 && <Text style={styles.emptyHint}>Nothing here yet.</Text>}
               {recent.map((t) => (
-                <SwipeableTxRow key={t.id} t={t} onEdit={editTx} onDelete={deleteTx} />
+                <SwipeableTxRow key={t.id} t={t} onEdit={editTx} onDelete={deleteTx} custom={{ income: (profile && profile.customIncome) || [], expense: (profile && profile.customExpense) || [] }} />
               ))}
             </View>
           </>)}
@@ -748,12 +854,49 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
+        <Modal visible={checkOpen} transparent animationType="fade" onRequestClose={() => setCheckOpen(false)}>
+          <TouchableOpacity style={styles.checkBackdrop} activeOpacity={1} onPress={() => setCheckOpen(false)}>
+            <TouchableOpacity style={styles.checkSheet} activeOpacity={1} onPress={() => {}}>
+              <Text style={styles.checkTitle}>Baby step checklist</Text>
+              <HeaderCheck
+                done={emergencyDone}
+                label="1. Emergency"
+                hint={emergencyHint}
+                meta={emergencyMeta}
+                onPress={() => { setCheckOpen(false); setTool('savings'); }}
+              />
+              <HeaderCheck
+                done={rothDone}
+                label="2. Roth IRA"
+                hint="$7,000 / yr ($8,000 if 50+)"
+                meta={`${moneyWhole(rothHave)} / ${moneyWhole(ROTH_YEARLY)}`}
+                onPress={() => { setCheckOpen(false); setTool('savings'); }}
+              />
+              <HeaderCheck
+                done={investDone}
+                label="3. Stocks and Bonds investments"
+                hint={`Stocks ${stockHave ? moneyWhole(stockHave) : 'none'} · Bonds ${bondHave ? moneyWhole(bondHave) : 'none'}`}
+                meta={investHave ? moneyWhole(investHave) : 'none'}
+                onPress={() => { setCheckOpen(false); setTool('portfolio'); }}
+              />
+              <HeaderCheck
+                done={collegeDone}
+                label="4. 529 account"
+                hint="Education savings"
+                meta={collegeAccounts.length ? moneyWhole(collegeHave) : 'none'}
+                onPress={() => { setCheckOpen(false); setTool('savings'); }}
+              />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
         <CalendarScreen
           visible={calendarOpen}
           transactions={calTx}
           onClose={() => setCalendarOpen(false)}
           onEdit={editTx}
           onDelete={deleteTx}
+          customIncome={(profile && profile.customIncome) || []}
+          customExpense={(profile && profile.customExpense) || []}
         />
         <AddEntryModal
           visible={modalVisible}
@@ -761,6 +904,8 @@ export default function App() {
           editEntry={editEntry}
           onClose={() => { setModalVisible(false); setEditEntry(null); }}
           onSave={handleSave}
+          customIncome={(profile && profile.customIncome) || []}
+          customExpense={(profile && profile.customExpense) || []}
         />
         <ProfileScreen
           visible={profileOpen}
@@ -770,6 +915,7 @@ export default function App() {
           onClose={() => setProfileOpen(false)}
           onSave={(p) => { setProfile(p); setProfileOpen(false); }}
           onLogout={() => { setProfileOpen(false); signOut(); }}
+          authEmail={user && user.email}
         />
         <SavingsScreen visible={tool === 'savings'} accounts={savingsAccounts} setAccounts={setSavingsAccounts} profile={profile} onClose={() => setTool(null)} />
         <PortfolioScreen visible={tool === 'portfolio'} holdings={portfolio} setHoldings={setPortfolio} onClose={() => setTool(null)} />
@@ -780,7 +926,7 @@ export default function App() {
           annualExpensesGuess={fireAnnualSpend}
           sources={fireSources}
           monthlyBills={transactions.filter((t) => t.type === 'expense' && t.recurring).map((t) => ({
-            label: t.note || categoryInfo('expense', t.category).label,
+            label: t.note || categoryInfo('expense', t.category, (profile && profile.customExpense) || []).label,
             amount: Number(t.amount) || 0,
           }))}
           monthlyIncome={profileIncome}
@@ -796,6 +942,8 @@ export default function App() {
           onClose={() => setTool(null)}
           onEdit={(item) => { setTool(null); editTx(item); }}
           onRemove={(id) => deleteTx(id)}
+          customIncome={(profile && profile.customIncome) || []}
+          customExpense={(profile && profile.customExpense) || []}
         />
         <CreditCardReminderScreen
           visible={tool === 'cards'}
@@ -823,7 +971,18 @@ const styles = StyleSheet.create({
   headerCalBtn: { width: 36, height: 40, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 2 },
   appName: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   balanceLabel: { color: '#FFFFFF', fontSize: 14, fontWeight: '400' },
-  balanceValue: { color: '#FFFFFF', fontSize: 42, fontWeight: '800', marginTop: 2, letterSpacing: -0.5 },
+  headerMid: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
+  balanceValue: { color: '#FFFFFF', fontSize: 42, fontWeight: '800', letterSpacing: -0.5 },
+  checkIconBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  checkBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', paddingHorizontal: 22 },
+  checkSheet: { backgroundColor: COLORS.card, borderRadius: 18, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
+  checkTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text, marginBottom: 10 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border },
+  checkCopy: { flex: 1, minWidth: 0 },
+  checkLabel: { fontSize: 15, fontWeight: '700', color: COLORS.textMuted },
+  checkLabelOn: { color: COLORS.text },
+  checkHint: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+  checkMeta: { fontSize: 13, fontWeight: '700', color: COLORS.text },
   headerTotals: { flexDirection: 'row', marginTop: 18, alignItems: 'flex-end' },
   headerTotalItem: { flex: 1 },
   headerDivider: { width: 1, height: 38, backgroundColor: 'rgba(255,255,255,0.7)', marginHorizontal: 14, marginBottom: 2 },
@@ -838,8 +997,8 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 2,
   },
   chartTop: { flexDirection: 'row', alignItems: 'center', width: '100%' },
-  chartTopCenter: { justifyContent: 'center' },
-  allocSummary: { flex: 1, paddingLeft: 22 },
+  chartDonutWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  allocSummary: { flex: 1, justifyContent: 'center', paddingLeft: 10, minWidth: 0 },
   chartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 10 },
   chartTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
   chartMonthScroll: { width: '100%' },
@@ -848,8 +1007,10 @@ const styles = StyleSheet.create({
   chartMonthChipOn: { backgroundColor: COLORS.header, borderColor: COLORS.header },
   chartMonthChipText: { fontSize: 13, fontWeight: '700', color: COLORS.textMuted },
   chartMonthChipTextOn: { color: '#FFFFFF' },
-  toggleCard: { width: '100%', marginBottom: 12, backgroundColor: COLORS.background, borderRadius: 14, paddingHorizontal: 12, paddingTop: 6 },
+  toggleCard: { width: '100%', marginBottom: 4, backgroundColor: COLORS.background, borderRadius: 14, paddingLeft: 12, paddingRight: 20, paddingTop: 6 },
   toggleRowLast: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  toggleCol: { width: 52, alignItems: 'center', justifyContent: 'center' },
+  splitEyeRow: { width: '100%', flexDirection: 'row', justifyContent: 'flex-end', paddingLeft: 12, paddingRight: 20, paddingBottom: 10 },
   toggleLabel: { fontSize: 14, fontWeight: '700', color: COLORS.text },
   toggleSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
   allocSummaryTitle: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted, letterSpacing: 0.3, textTransform: 'uppercase', marginBottom: 8 },

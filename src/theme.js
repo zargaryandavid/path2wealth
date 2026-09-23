@@ -28,6 +28,7 @@ export const EXPENSE_CATEGORIES = [
   { key: 'finance',    label: 'Finance',    icon: 'bank',            color: '#C0392B' },
   { key: 'insurance',  label: 'Insurance',  icon: 'shield-check',    color: '#3FB984' },
   { key: 'investment', label: 'Investment', icon: 'star',            color: '#4C8DFF' },
+  { key: 'saving',     label: 'Saving',     icon: 'piggy-bank',      color: '#0EA47A' },
   { key: 'other',      label: 'Other',      icon: 'dots-horizontal', color: '#A0AAB8' },
 ];
 
@@ -44,10 +45,33 @@ export const INCOME_CATEGORIES = [
   { key: 'other',     label: 'Other',       icon: 'plus',            color: '#8FD0B0' },
 ];
 
+export const CAT_ICON_PICK = [
+  'briefcase', 'laptop', 'gift', 'cash', 'handshake', 'cash-multiple',
+  'home', 'car', 'food', 'school', 'paw', 'heart', 'airplane', 'music',
+  'gamepad-variant', 'tools', 'shopping', 'bank', 'chart-line', 'baby-carriage',
+  'dumbbell', 'coffee', 'phone', 'bus', 'gas-station', 'medical-bag', 'palette',
+  'hammer-wrench', 'wifi', 'ticket', 'soccer', 'book-open-variant', 'flower',
+];
+
+const CUSTOM_COLORS = ['#0EA47A', '#4C8DFF', '#B15CFF', '#F5A623', '#FF7AC6', '#2CC9B5', '#E5484D', '#5B6CFF', '#16A085', '#C0392B'];
+
+export function mergeCategories(type, custom) {
+  const base = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const extras = (custom || []).map((c, i) => ({
+    key: c.key,
+    label: c.name || c.label || 'Custom',
+    icon: c.icon || 'plus',
+    color: c.color || CUSTOM_COLORS[i % CUSTOM_COLORS.length],
+  })).filter((c) => c.key);
+  const other = base.find((c) => c.key === 'other');
+  const rest = base.filter((c) => c.key !== 'other');
+  return other ? [...rest, ...extras, other] : [...base, ...extras];
+}
+
 // Given a transaction's type + category key, return its icon/label/color.
-export function categoryInfo(type, key) {
-  const list = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-  return list.find((c) => c.key === key) || list[list.length - 1];
+export function categoryInfo(type, key, custom) {
+  const list = mergeCategories(type, custom);
+  return list.find((c) => c.key === key) || { key, label: key || 'Other', icon: 'dots-horizontal', color: '#A0AAB8' };
 }
 
 const CURRENCY_SYM = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', CHF: 'CHF ', CAD: 'C$', AUD: 'A$', AMD: '֏' };

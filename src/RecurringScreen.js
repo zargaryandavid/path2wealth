@@ -6,8 +6,8 @@ import { COLORS, categoryInfo, formatMoney, ordinal } from './theme';
 import { CatIcon } from './Icons';
 import { seriesIdOf } from './recurring';
 
-function RecurringRow({ item, onEdit, onRemove }) {
-  const info = categoryInfo(item.type, item.category);
+function RecurringRow({ item, onEdit, onRemove, custom }) {
+  const info = categoryInfo(item.type, item.category, item.type === 'income' ? custom && custom.income : custom && custom.expense);
   const isIncome = item.type === 'income';
   const day = item.repeatDay || 1;
   const months = item.repeatMonths || 12;
@@ -40,7 +40,7 @@ function RecurringRow({ item, onEdit, onRemove }) {
   );
 }
 
-export default function RecurringScreen({ visible, items, onClose, onEdit, onRemove }) {
+export default function RecurringScreen({ visible, items, onClose, onEdit, onRemove, customIncome = [], customExpense = [] }) {
   const [pending, setPending] = useState(null);
   const income = items.filter((t) => t.type === 'income');
   const expenses = items.filter((t) => t.type === 'expense');
@@ -81,7 +81,7 @@ export default function RecurringScreen({ visible, items, onClose, onEdit, onRem
               <Text style={styles.section}>Earnings</Text>
               <View style={styles.card}>
                 {income.map((t) => (
-                  <RecurringRow key={t.id} item={t} onEdit={onEdit} onRemove={confirmRemove} />
+                  <RecurringRow key={t.id} item={t} onEdit={onEdit} onRemove={confirmRemove} custom={{ income: customIncome, expense: customExpense }} />
                 ))}
               </View>
             </>
@@ -92,7 +92,7 @@ export default function RecurringScreen({ visible, items, onClose, onEdit, onRem
               <Text style={styles.section}>Expenses</Text>
               <View style={styles.card}>
                 {expenses.map((t) => (
-                  <RecurringRow key={t.id} item={t} onEdit={onEdit} onRemove={confirmRemove} />
+                  <RecurringRow key={t.id} item={t} onEdit={onEdit} onRemove={confirmRemove} custom={{ income: customIncome, expense: customExpense }} />
                 ))}
               </View>
             </>
@@ -101,7 +101,7 @@ export default function RecurringScreen({ visible, items, onClose, onEdit, onRem
         {pending && (
           <View style={styles.confirmBar}>
             <Text style={styles.confirmText}>
-              Remove {categoryInfo(pending.type, pending.category).label}
+              Remove {categoryInfo(pending.type, pending.category, pending.type === 'income' ? customIncome : customExpense).label}
               {pending.note ? ` · ${pending.note}` : ''}?
             </Text>
             <View style={styles.confirmActions}>

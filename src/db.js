@@ -94,6 +94,10 @@ export async function loadAll(uid) {
       maritalStatus: p.marital_status || '',
       kidsQty: p.kids_qty != null ? Number(p.kids_qty) : 0,
       kidsAges: Array.isArray(p.kids_ages) ? p.kids_ages.map(String) : [],
+      firstName: p.first_name || '', lastName: p.last_name || '',
+      email: p.email || '', phone: p.phone || '',
+      customIncome: Array.isArray(p.custom_income) ? p.custom_income : [],
+      customExpense: Array.isArray(p.custom_expense) ? p.custom_expense : [],
     } : null,
     alloc: p && p.alloc && typeof p.alloc === 'object' ? p.alloc : null,
     transactions: (txs.data || []).map(fromDbTx),
@@ -111,12 +115,16 @@ export async function saveProfile(uid, p, alloc) {
     marital_status: p.maritalStatus || null,
     kids_qty: p.kidsQty != null ? Number(p.kidsQty) || 0 : null,
     kids_ages: Array.isArray(p.kidsAges) ? p.kidsAges : [],
+    first_name: p.firstName || null, last_name: p.lastName || null,
+    email: p.email || null, phone: p.phone || null,
+    custom_income: Array.isArray(p.customIncome) ? p.customIncome : [],
+    custom_expense: Array.isArray(p.customExpense) ? p.customExpense : [],
     updated_at: new Date().toISOString(),
   };
   if (alloc) row.alloc = alloc;
   let res = await supabase.from('profiles').upsert(row);
-  if (res.error && /alloc|marital_status|kids_qty|kids_ages/.test(String(res.error.message || ''))) {
-    const { alloc: _a, marital_status: _m, kids_qty: _k, kids_ages: _ages, ...without } = row;
+  if (res.error && /alloc|marital_status|kids_qty|kids_ages|first_name|last_name|email|phone|custom_income|custom_expense/.test(String(res.error.message || ''))) {
+    const { alloc: _a, marital_status: _m, kids_qty: _k, kids_ages: _ages, first_name: _fn, last_name: _ln, email: _e, phone: _ph, custom_income: _ci, custom_expense: _ce, ...without } = row;
     res = await supabase.from('profiles').upsert(without);
   }
   return res;

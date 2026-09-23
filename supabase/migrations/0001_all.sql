@@ -20,6 +20,12 @@ alter table public.profiles add column if not exists alloc jsonb;
 alter table public.profiles add column if not exists marital_status text;
 alter table public.profiles add column if not exists kids_qty int;
 alter table public.profiles add column if not exists kids_ages jsonb;
+alter table public.profiles add column if not exists first_name text;
+alter table public.profiles add column if not exists last_name text;
+alter table public.profiles add column if not exists email text;
+alter table public.profiles add column if not exists phone text;
+alter table public.profiles add column if not exists custom_income jsonb default '[]'::jsonb;
+alter table public.profiles add column if not exists custom_expense jsonb default '[]'::jsonb;
 alter table public.profiles enable row level security;
 drop policy if exists "profiles are private to owner" on public.profiles;
 create policy "profiles are private to owner" on public.profiles

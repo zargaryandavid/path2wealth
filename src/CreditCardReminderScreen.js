@@ -27,11 +27,12 @@ export default function CreditCardReminderScreen({ visible, cards = [], setCards
   const [name, setName] = useState('');
   const [last4, setLast4] = useState('');
   const [dueDay, setDueDay] = useState(new Date().getDate());
+  const [kind, setKind] = useState('due');
   const [notify, setNotify] = useState(true);
   const [busy, setBusy] = useState(false);
   const [permHint, setPermHint] = useState('');
 
-  const reset = () => { setName(''); setLast4(''); setDueDay(new Date().getDate()); setNotify(true); setPermHint(''); };
+  const reset = () => { setName(''); setLast4(''); setDueDay(new Date().getDate()); setKind('due'); setNotify(true); setPermHint(''); };
 
   const add = async () => {
     if (!name.trim()) return;
@@ -41,6 +42,7 @@ export default function CreditCardReminderScreen({ visible, cards = [], setCards
       name: name.trim(),
       last4: last4.replace(/\D/g, '').slice(-4),
       dueDay: Math.min(31, Math.max(1, dueDay)),
+      kind,
       notify: !!notify && Platform.OS !== 'web',
     };
     const saved = await syncCardNotification(draft);
@@ -71,7 +73,7 @@ export default function CreditCardReminderScreen({ visible, cards = [], setCards
         <ScreenHeader title="Card reminders" onClose={onClose} />
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive">
           <Text style={styles.lead}>
-            We’ll remind you {DAYS_BEFORE} days before each due date with a popup on your phone.
+            Track your card due dates here. Automatic phone alerts are coming in a later update — for now, open this screen to see what’s due and when.
           </Text>
 
           {cards.length === 0 && (
@@ -85,7 +87,9 @@ export default function CreditCardReminderScreen({ visible, cards = [], setCards
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardName}>{cardLabel(c)}</Text>
-                <Text style={styles.cardMeta}>{dueHint(c)} · the {ordinal(c.dueDay)} each month</Text>
+                <Text style={styles.cardMeta}>
+                  {dueHint(c)} · {c.kind === 'closes' ? 'statement closes' : 'payment due'} the {ordinal(c.dueDay)} each month
+                </Text>
                 <View style={styles.notifyRow}>
                   <Text style={styles.notifyLbl}>Phone notification · {DAYS_BEFORE} days before</Text>
                   <Switch
@@ -121,8 +125,16 @@ export default function CreditCardReminderScreen({ visible, cards = [], setCards
               keyboardType="number-pad"
               maxLength={4}
             />
+            <View style={styles.kindRow}>
+              <TouchableOpacity style={[styles.kindChip, kind === 'due' && styles.kindChipOn]} onPress={() => setKind('due')}>
+                <Text style={[styles.kindChipText, kind === 'due' && styles.kindChipTextOn]}>Payment due</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.kindChip, kind === 'closes' && styles.kindChipOn]} onPress={() => setKind('closes')}>
+                <Text style={[styles.kindChipText, kind === 'closes' && styles.kindChipTextOn]}>Statement closes</Text>
+              </TouchableOpacity>
+            </View>
             <Stepper
-              label="Due date"
+              label={kind === 'closes' ? 'Statement closes' : 'Due date'}
               value={ordinal(dueDay)}
               onDec={() => setDueDay((d) => (d <= 1 ? 31 : d - 1))}
               onInc={() => setDueDay((d) => (d >= 31 ? 1 : d + 1))}
@@ -130,7 +142,7 @@ export default function CreditCardReminderScreen({ visible, cards = [], setCards
             <View style={styles.notifyRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.notifyLbl}>Enable popup / phone notification</Text>
-                <Text style={styles.notifySub}>{DAYS_BEFORE} days before the due date, around 9:00 AM</Text>
+                <Text style={styles.notifySub}>{DAYS_BEFORE} days before the {kind === 'closes' ? 'statement close' : 'due date'}, around 9:00 AM</Text>
               </View>
               <Switch
                 value={notify && Platform.OS !== 'web'}
@@ -165,6 +177,14 @@ const styles = StyleSheet.create({
   cardMeta: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 },
   section: { fontSize: 12, fontWeight: '700', letterSpacing: 0.4, color: COLORS.textMuted, marginTop: 18, marginBottom: 10 },
   addBox: { backgroundColor: COLORS.background, borderRadius: 14, padding: 12 },
+  kindRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  kindChip: {
+    flex: 1, height: 40, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.border,
+    backgroundColor: COLORS.card, alignItems: 'center', justifyContent: 'center',
+  },
+  kindChipOn: { borderColor: COLORS.header, backgroundColor: '#0EA47A14' },
+  kindChipText: { fontSize: 13, fontWeight: '700', color: COLORS.textMuted },
+  kindChipTextOn: { color: COLORS.header },
   field: {
     backgroundColor: COLORS.card, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12,
     fontSize: 15, color: COLORS.text, marginBottom: 10,

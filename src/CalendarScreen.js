@@ -30,9 +30,9 @@ function monthGrid(year, month) {
   return cells;
 }
 
-function CalendarTxRow({ t, onEdit, onDelete }) {
+function CalendarTxRow({ t, onEdit, onDelete, custom }) {
   const ref = React.useRef(null);
-  const info = categoryInfo(t.type, t.category);
+  const info = categoryInfo(t.type, t.category, t.type === 'income' ? custom && custom.income : custom && custom.expense);
   const isIncome = t.type === 'income';
   const d = parseKey(t.occurredOn || t.date);
   const close = () => ref.current && ref.current.close();
@@ -79,7 +79,7 @@ function CalendarTxRow({ t, onEdit, onDelete }) {
   );
 }
 
-function CalendarScreen({ visible, transactions = [], onClose, onEdit, onDelete }) {
+function CalendarScreen({ visible, transactions = [], onClose, onEdit, onDelete, customIncome = [], customExpense = [] }) {
   const today = useMemo(() => {
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), n.getDate());
@@ -236,7 +236,7 @@ function CalendarScreen({ visible, transactions = [], onClose, onEdit, onDelete 
             )}
             {dayList.length > 0 && <Text style={styles.swipeHint}>Swipe a row left to edit or delete it.</Text>}
             {dayList.map((t) => (
-              <CalendarTxRow key={t.id} t={t} onEdit={onEdit} onDelete={onDelete} />
+              <CalendarTxRow key={t.id} t={t} onEdit={onEdit} onDelete={onDelete} custom={{ income: customIncome, expense: customExpense }} />
             ))}
           </ScrollView>
         </SafeAreaView>

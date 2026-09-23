@@ -71,7 +71,7 @@ export default function DonutChart({
 
       {/* The number in the middle of the donut. */}
       <Pressable
-        style={[styles.center, { width: hole, height: hole }]}
+        style={styles.center}
         onPress={() => onSelectSlice(null)}
       >
         <Text style={[styles.centerLabel, { fontSize: Math.max(10, Math.round(size * 0.07)) }]} numberOfLines={1}>
@@ -86,7 +86,10 @@ export default function DonutChart({
 }
 
 const styles = StyleSheet.create({
-  center: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
+  center: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center', justifyContent: 'center',
+  },
   centerLabel: { color: COLORS.textMuted, marginBottom: 2, textAlign: 'center' },
   centerAmount: { color: COLORS.text, fontWeight: '700', textAlign: 'center' },
 });

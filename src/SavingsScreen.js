@@ -5,6 +5,16 @@ import ScreenHeader from './ScreenHeader';
 import { CatIcon } from './Icons';
 
 const FIELD_H = 48;
+const ACCOUNT_KINDS = [
+  { key: 'savings', label: 'Savings', icon: 'piggy-bank', name: '' },
+  { key: 'roth', label: 'Roth IRA', icon: 'shield-check', name: 'Roth IRA' },
+  { key: '529', label: '529/ESA', icon: 'school', name: '529/ESA' },
+];
+
+function kindMeta(kind) {
+  return ACCOUNT_KINDS.find((k) => k.key === kind) || ACCOUNT_KINDS[0];
+}
+
 const CURRENCIES = [
   { code: 'USD', label: 'USD $' }, { code: 'AMD', label: 'AMD ֏' },
   { code: 'EUR', label: 'EUR €' }, { code: 'GBP', label: 'GBP £' },
@@ -79,11 +89,12 @@ export default function SavingsScreen({ visible, accounts = [], setAccounts, pro
   const patch = (id, fields) => setAccounts(accounts.map((a) => (a.id === id ? { ...a, ...fields } : a)));
   const remove = (id) => setAccounts(accounts.filter((a) => a.id !== id));
   const add = () => {
-    if (!name.trim() && kind !== 'roth') return;
+    const fallback = kindMeta(kind).name;
+    if (!name.trim() && !fallback) return;
     const balance = parseFloat(bal.replace(/[^0-9.]/g, '')) || 0;
     setAccounts([...accounts, {
       id: Date.now().toString(),
-      name: name.trim() || 'Roth IRA',
+      name: name.trim() || fallback,
       kind,
       balance,
       currency,
@@ -107,6 +118,7 @@ export default function SavingsScreen({ visible, accounts = [], setAccounts, pro
           <Text style={styles.section}>MY ACCOUNTS</Text>
           {accounts.map((a) => {
             const isRoth = a.kind === 'roth';
+            const meta = kindMeta(a.kind);
             const code = a.currency || 'USD';
             return (
               <View key={a.id} style={styles.acctRow}>
@@ -116,7 +128,7 @@ export default function SavingsScreen({ visible, accounts = [], setAccounts, pro
                   delayLongPress={350}
                   disabled={!isRoth}
                 >
-                  <CatIcon name={isRoth ? 'shield-check' : 'piggy-bank'} size={20} color={COLORS.header} />
+                  <CatIcon name={meta.icon} size={20} color={COLORS.header} />
                 </Pressable>
                 <TextInput
                   style={styles.acctName}
@@ -147,17 +159,22 @@ export default function SavingsScreen({ visible, accounts = [], setAccounts, pro
           <Text style={styles.section}>ADD AN ACCOUNT</Text>
           <View style={styles.addBox}>
             <View style={styles.kindRow}>
-              <TouchableOpacity style={[styles.kindChip, kind === 'savings' && styles.kindChipOn]} onPress={() => setKind('savings')}>
-                <CatIcon name="piggy-bank" size={16} color={kind === 'savings' ? COLORS.header : COLORS.textMuted} />
-                <Text style={[styles.kindText, kind === 'savings' && styles.kindTextOn]}>Savings</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.kindChip, kind === 'roth' && styles.kindChipOn]} onPress={() => { setKind('roth'); if (!name.trim()) setName('Roth IRA'); }}>
-                <CatIcon name="shield-check" size={16} color={kind === 'roth' ? COLORS.header : COLORS.textMuted} />
-                <Text style={[styles.kindText, kind === 'roth' && styles.kindTextOn]}>Roth IRA</Text>
-              </TouchableOpacity>
+              {ACCOUNT_KINDS.map((k) => {
+                const on = kind === k.key;
+                return (
+                  <TouchableOpacity
+                    key={k.key}
+                    style={[styles.kindChip, on && styles.kindChipOn]}
+                    onPress={() => { setKind(k.key); if (!name.trim() && k.name) setName(k.name); }}
+                  >
+                    <CatIcon name={k.icon} size={15} color={on ? COLORS.header : COLORS.textMuted} />
+                    <Text style={[styles.kindText, on && styles.kindTextOn]} numberOfLines={1}>{k.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
             <TextInput style={styles.addName} value={name} onChangeText={setName}
-              placeholder={kind === 'roth' ? 'Roth IRA' : 'Account name (e.g. Vacation)'} placeholderTextColor={COLORS.textMuted} />
+              placeholder={kindMeta(kind).name || 'Account name (e.g. Vacation)'} placeholderTextColor={COLORS.textMuted} />
             <View style={styles.addBalRow}>
               <CurrencyPick value={currency} onChange={setCurrency} />
               <View style={styles.addBal}>
@@ -195,9 +212,9 @@ const styles = StyleSheet.create({
   rothHint: { fontSize: 12, color: COLORS.textMuted, marginTop: 8, lineHeight: 17 },
   addBox: { backgroundColor: COLORS.background, borderRadius: 14, padding: 12 },
   kindRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  kindChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: FIELD_H, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.card },
+  kindChip: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, height: FIELD_H, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.card, paddingHorizontal: 4 },
   kindChipOn: { borderColor: COLORS.header, backgroundColor: '#0EA47A14' },
-  kindText: { fontSize: 13, fontWeight: '700', color: COLORS.textMuted },
+  kindText: { fontSize: 11, fontWeight: '700', color: COLORS.textMuted },
   kindTextOn: { color: COLORS.header },
   addName: { backgroundColor: COLORS.card, borderRadius: 10, paddingHorizontal: 12, height: FIELD_H, fontSize: 15, color: COLORS.text, marginBottom: 10, paddingVertical: 0 },
   addBalRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

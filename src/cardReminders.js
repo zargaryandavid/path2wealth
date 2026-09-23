@@ -6,6 +6,12 @@ import { ordinal } from './theme';
 const CHANNEL = 'reminders';
 const DAYS_BEFORE = 3;
 
+export const DEFAULT_CREDIT_CARDS = [
+  { id: 'cc-amex', name: 'AmEx', last4: '', dueDay: 18, kind: 'closes', notify: true },
+  { id: 'cc-boa', name: 'Bank of America', last4: '', dueDay: 25, kind: 'due', notify: true },
+  { id: 'cc-citi', name: 'Citi Costco', last4: '', dueDay: 5, kind: 'closes', notify: true },
+];
+
 if (Platform.OS !== 'web') {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
@@ -49,11 +55,12 @@ export function daysUntilDue(dueDay, from = new Date()) {
 }
 
 export function dueHint(card, from = new Date()) {
+  const closes = (card && card.kind) === 'closes';
   const days = daysUntilDue(card.dueDay, from);
-  if (days === 0) return 'Due today';
-  if (days === 1) return 'Due tomorrow';
-  if (days <= 3) return `Due in ${days} days`;
-  return `Due the ${ordinal(card.dueDay || 1)}`;
+  if (days === 0) return closes ? 'Closes today' : 'Due today';
+  if (days === 1) return closes ? 'Closes tomorrow' : 'Due tomorrow';
+  if (days <= 3) return closes ? `Closes in ${days} days` : `Due in ${days} days`;
+  return closes ? `Closes the ${ordinal(card.dueDay || 1)}` : `Due the ${ordinal(card.dueDay || 1)}`;
 }
 
 async function ensureAndroidChannel() {
@@ -86,10 +93,13 @@ export async function syncCardNotification(card) {
   const ok = await requestReminderPermission();
   if (!ok) return { ...card, notify: false, notifId: null };
   const day = notifyDayOfMonth(card.dueDay);
+  const closes = card.kind === 'closes';
   const id = await Notifications.scheduleNotificationAsync({
     content: {
-      title: 'Credit card payment',
-      body: `${cardLabel(card)} is due in ${DAYS_BEFORE} days.`,
+      title: closes ? 'Credit card statement' : 'Credit card payment',
+      body: closes
+        ? `${cardLabel(card)} statement closes in ${DAYS_BEFORE} days.`
+        : `${cardLabel(card)} is due in ${DAYS_BEFORE} days.`,
       sound: true,
     },
     trigger: {

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, Pressable,
+  Keyboard, Platform,
 } from 'react-native';
-import { COLORS, EXPENSE_CATEGORIES, INCOME_CATEGORIES, formatMoney, groupDigits, ordinal } from './theme';
+import { COLORS, mergeCategories, formatMoney, groupDigits, ordinal } from './theme';
 import { CatIcon } from './Icons';
 import { addDays, firstPaymentOn, formatKey, todayKey } from './recurring';
 
@@ -23,7 +23,7 @@ function Stepper({ label, value, onDec, onInc }) {
 
 // The pop-up sheet for adding money in (+) or out (-).
 // Everyday flow is just amount + category. Recurring is tucked behind the Repeat button.
-export default function AddEntryModal({ visible, initialType = 'expense', initialEntry = null, editEntry = null, onClose, onSave }) {
+export default function AddEntryModal({ visible, initialType = 'expense', initialEntry = null, editEntry = null, onClose, onSave, customIncome = [], customExpense = [] }) {
   const source = editEntry || initialEntry;
   const [type, setType] = useState(initialType);
   const [amount, setAmount] = useState('');
@@ -34,8 +34,9 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
   const [repeatMonths, setRepeatMonths] = useState(12);
   const [occurredOn, setOccurredOn] = useState(todayKey());
   const [propertyValue, setPropertyValue] = useState('');
+  const [kbHeight, setKbHeight] = useState(0);
 
-  const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const categories = mergeCategories(type, type === 'income' ? customIncome : customExpense);
   const editing = !!source;
 
   useEffect(() => {
@@ -62,6 +63,15 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
       setPropertyValue('');
     }
   }, [visible, initialType, source]);
+
+  useEffect(() => {
+    if (!visible) { setKbHeight(0); return; }
+    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (e) => {
+      setKbHeight(e.endCoordinates ? e.endCoordinates.height : 0);
+    });
+    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKbHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, [visible]);
 
   const numericAmount = parseFloat(amount) || 0;
   const canSave = numericAmount > 0 && !!categoryKey;
@@ -96,7 +106,7 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.backdrop}>
+      <View style={[styles.backdrop, { paddingBottom: kbHeight }]}>
         <View style={styles.sheet}>
           <View style={styles.grabber} />
 
@@ -116,7 +126,7 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
             </TouchableOpacity>
           </View>
 
-          <Pressable onPress={() => setCategoryKey(null)}>
+          <View>
             {/* Amount */}
             <View style={styles.amountRow}>
               <Text style={[styles.amountCurrency, { color: accent }]}>$</Text>
@@ -139,16 +149,18 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
                 return (
                   <TouchableOpacity
                     key={c.key}
-                    style={[styles.catItem, active && { borderColor: c.color, backgroundColor: c.color + '18' }]}
+                    style={styles.catItem}
                     onPress={() => setCategoryKey(active ? null : c.key)}
                   >
-                    <CatIcon name={c.icon} size={22} color={active ? c.color : COLORS.text} />
-                    <Text style={styles.catLabel}>{c.label}</Text>
+                    <View style={[styles.catTile, active && { borderColor: c.color, backgroundColor: c.color + '18' }]}>
+                      <CatIcon name={c.icon} size={20} color={active ? c.color : COLORS.text} />
+                      <Text style={styles.catLabel}>{c.label}</Text>
+                    </View>
                   </TouchableOpacity>
                 );
               })}
             </View>
-          </Pressable>
+          </View>
 
           {type === 'income' && categoryKey === 'rent' && (
             <View style={styles.realtyBox}>
@@ -224,7 +236,7 @@ export default function AddEntryModal({ visible, initialType = 'expense', initia
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -233,24 +245,25 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' },
   sheet: {
     backgroundColor: COLORS.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingBottom: 30, paddingTop: 10,
+    paddingHorizontal: 16, paddingBottom: 8, paddingTop: 10, flexGrow: 0,
   },
-  grabber: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: COLORS.border, marginBottom: 14 },
-  toggle: { flexDirection: 'row', backgroundColor: COLORS.background, borderRadius: 14, padding: 4, marginBottom: 16 },
+  grabber: { alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: COLORS.border, marginBottom: 10 },
+  toggle: { flexDirection: 'row', backgroundColor: COLORS.background, borderRadius: 14, padding: 4, marginBottom: 8 },
   toggleBtn: { flex: 1, paddingVertical: 11, borderRadius: 11, alignItems: 'center' },
   toggleText: { fontSize: 15, fontWeight: '600', color: COLORS.textMuted },
   toggleTextActive: { color: '#FFFFFF' },
-  amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 6, paddingHorizontal: 8 },
+  amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 2, paddingHorizontal: 8 },
   amountCurrency: { fontSize: 32, fontWeight: '700', marginRight: 4 },
   amountInput: { fontSize: 44, fontWeight: '700', minWidth: 100, flexShrink: 1, textAlign: 'center', padding: 0 },
-  sectionLabel: { fontSize: 12, color: COLORS.textMuted, marginBottom: 10, marginTop: 8, fontWeight: '700', letterSpacing: 0.5 },
-  catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
-  catItem: {
-    width: '22.6%', aspectRatio: 1, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.card, gap: 5,
+  sectionLabel: { fontSize: 12, color: COLORS.textMuted, marginBottom: 6, marginTop: 4, fontWeight: '700', letterSpacing: 0.5 },
+  catGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 },
+  catItem: { width: '25%', paddingHorizontal: 4, paddingBottom: 8 },
+  catTile: {
+    width: '100%', borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.card, paddingVertical: 10, gap: 4,
   },
-  catLabel: { fontSize: 11, color: COLORS.text },
-  realtyBox: { marginTop: 14 },
+  catLabel: { fontSize: 11, color: COLORS.text, textAlign: 'center' },
+  realtyBox: { marginTop: 10 },
   realtyRow: {
     flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: COLORS.border,
     borderRadius: 12, paddingHorizontal: 14, backgroundColor: COLORS.background,
@@ -273,9 +286,9 @@ const styles = StyleSheet.create({
   repHelp: { fontSize: 12, color: COLORS.textMuted, marginTop: 2, marginBottom: 6, lineHeight: 17 },
   note: {
     backgroundColor: COLORS.background, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 15, color: COLORS.text, marginTop: 14,
+    fontSize: 15, color: COLORS.text, marginTop: 4,
   },
-  actions: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  actions: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelBtn: { flex: 1, paddingVertical: 15, borderRadius: 14, alignItems: 'center', backgroundColor: COLORS.background },
   cancelText: { fontSize: 16, fontWeight: '600', color: COLORS.text },
   saveBtn: { flex: 2, paddingVertical: 15, borderRadius: 14, alignItems: 'center' },
